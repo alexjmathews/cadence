@@ -6,20 +6,31 @@ struct CadenceEntry: TimelineEntry {
     let state: CadenceSessionState
 }
 
-/// Static provider for the shell. Once the App Group is wired, this will read
-/// the real `CadenceSessionState` and build a countdown timeline.
+/// Reads the shared session state from the App Group. When a session is active
+/// the view shows a self-updating countdown, so we only need to schedule a
+/// single refresh for when the session ends.
 struct CadenceProvider: TimelineProvider {
     func placeholder(in context: Context) -> CadenceEntry {
-        CadenceEntry(date: Date(), state: .placeholder)
+        CadenceEntry(date: Date(), state: .sample)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (CadenceEntry) -> Void) {
-        completion(CadenceEntry(date: Date(), state: .placeholder))
+        let state = context.isPreview ? .sample : SharedStore.load()
+        completion(CadenceEntry(date: Date(), state: state))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<CadenceEntry>) -> Void) {
-        let entry = CadenceEntry(date: Date(), state: .placeholder)
-        completion(Timeline(entries: [entry], policy: .never))
+        let now = Date()
+        let state = SharedStore.load()
+        let entry = CadenceEntry(date: now, state: state)
+
+        let policy: TimelineReloadPolicy
+        if let end = state.endDate, end > now {
+            policy = .after(end)
+        } else {
+            policy = .never
+        }
+        completion(Timeline(entries: [entry], policy: policy))
     }
 }
 
@@ -28,13 +39,20 @@ struct CadenceWidgetEntryView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: "timer")
+            Image(systemName: entry.state.symbol)
                 .font(.title2)
-            Text("Cadence")
+            Text(entry.state.title)
                 .font(.headline)
-            Text("No session")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
+            if let end = entry.state.endDate, end > entry.date {
+                Text(timerInterval: entry.date...end, countsDown: true)
+                    .font(.system(.title3, design: .rounded).monospacedDigit())
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("No session")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .containerBackground(.fill.tertiary, for: .widget)
     }

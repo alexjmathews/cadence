@@ -16,6 +16,17 @@ struct MenuBarContentView: View {
             NotificationManager.shared.sendTestNotification()
         }
 
+        Button("Start 25:00 Focus (Demo)") {
+            SharedStore.save(CadenceSessionState(
+                phase: .focus,
+                endDate: Date().addingTimeInterval(25 * 60)
+            ))
+        }
+
+        Button("Clear Session (Demo)") {
+            SharedStore.save(.placeholder)
+        }
+
         Toggle("Launch at Login", isOn: Binding(
             get: { loginItem.isEnabled },
             set: { loginItem.setEnabled($0) }
