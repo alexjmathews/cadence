@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.moved-aside
+*.hmap
+build/
+DerivedData/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# XcodeGen-generated project — regenerate with `xcodegen generate`
+Cadence.xcodeproj/
