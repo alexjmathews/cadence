@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import AppIntents
 
 struct CadenceEntry: TimelineEntry {
     let date: Date
@@ -53,6 +54,14 @@ struct CadenceWidgetEntryView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // Interactive button — runs SendNotificationIntent in the widget
+            // extension's background process, no app launch required.
+            Button(intent: SendNotificationIntent()) {
+                Label("Notify", systemImage: "bell.badge")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
         }
         .containerBackground(.fill.tertiary, for: .widget)
     }

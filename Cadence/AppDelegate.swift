@@ -27,6 +27,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    // Handle cadence:// URLs (e.g. from Raycast via `open -g`). Runs silently in
+    // the menu bar — no window is shown, and with `open -g` focus never shifts.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme == "cadence" {
+            handle(url)
+        }
+    }
+
+    private func handle(_ url: URL) {
+        switch url.host {
+        case "notify":
+            let message = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first { $0.name == "message" }?
+                .value
+            NotificationService.send(body: message ?? "This is a Cadence notification.")
+        default:
+            break
+        }
+    }
+
     // Show notifications even when Cadence is the foreground app.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
