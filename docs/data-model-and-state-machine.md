@@ -160,17 +160,32 @@ dismissal state is day-scoped and disposable.
 ### 2.4 Dismissals
 
 ```swift
-/// Set of EventOccurrence.id the user has dismissed. Day-scoped.
-typealias DismissedEventKeys = Set<String>
+struct DismissedEvents: Codable, Equatable, Sendable {
+    var day: Date            // startOfDay this set applies to
+    var keys: Set<String>    // EventOccurrence.id values
+}
 ```
 
-Stored as `[String]` in the App Group. **Pruned on every read and write**: any key
-whose embedded occurrence timestamp is before `startOfDay(now)` is dropped. This
-caps growth and makes dismissals expire at midnight with no scheduled job.
+**The whole record is scoped to a day, not pruned key-by-key.** Reading is
+`stored.day == startOfDay(now) ? stored.keys : []`; a stale record is discarded
+wholesale and replaced on the next write. Expiry is one date comparison, and
+growth is bounded by a single day's events.
 
-Because the set is keyed by occurrence, re-syncing the calendar preserves
-dismissals — a refreshed event keeps its dismissed state, and expiry is handled
-entirely by day-scoped pruning.
+This is deliberately *not* a flat `Set<String>` pruned by parsing the occurrence
+timestamp back out of each key. That would couple expiry to the key's string
+encoding — change the key format and the pruner breaks silently, either keeping
+keys forever or dropping them immediately. Scoping the container instead makes the
+day-scoped invariant **structural**: it cannot drift, and the key stays an opaque
+identity string whose internal shape only §2.3 needs to know.
+
+It also mirrors `CalendarSnapshot`, which already carries `day` and is read
+alongside this record, so both share one freshness rule.
+
+**Dismissals are kept in their own record, not folded into `CalendarSnapshot`,**
+despite both being day-scoped. A calendar refresh rewrites the snapshot; sharing
+one record would make every refresh a read-modify-write that can clobber
+concurrent dismissals. Separate keys mean a refresh preserves dismissals
+structurally rather than by careful merging.
 
 Dismissal is app state — never write it back to `EKEvent`; the user's calendar is
 not ours to mutate.
@@ -181,13 +196,18 @@ not ours to mutate.
 
 All in `UserDefaults(suiteName: "group.com.alexmathews.cadence")`, which resolves
 to `~/Library/Group Containers/group.com.alexmathews.cadence/Library/Preferences/`.
-Values are JSON-encoded `Data` (except the dismissal array).
+Every value is JSON-encoded `Data`.
+
+All four records now carry their own scope or identity, so each can be validated on
+read without reference to the others: `sessionState` is reconciled against `now`,
+`preferences` is unconditional, and `calendarSnapshot` and `dismissedEvents` are
+both discarded when their `day` is stale.
 
 | Key | Type | Written by | Read by | Survives relaunch |
 |---|---|---|---|---|
 | `sessionState` | `SessionState` JSON | app, widget intents, URL/Raycast | all surfaces | yes, reconciled on load |
 | `preferences` | `Preferences` JSON | app | all surfaces | **yes — required** |
-| `dismissedEventKeys` | `[String]` | app | app, widget | yes, pruned to today |
+| `dismissedEvents` | `DismissedEvents` JSON | app | app, widget | yes, discarded when `day` is stale |
 | `calendarSnapshot` | `CalendarSnapshot` JSON | **app only** | app, widget | yes, refreshed when stale |
 
 **There is no session history.** Cadence stores exactly one session — the current
