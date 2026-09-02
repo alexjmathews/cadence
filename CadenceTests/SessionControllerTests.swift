@@ -1,0 +1,231 @@
+import XCTest
+@testable import Cadence
+
+/// The app-layer controller: the ticker's discipline (D1), the guards that decide
+/// whether a preference moves, and the write-through contract with the container.
+///
+/// Against a scratch suite, so a test run cannot scribble on the session the
+/// developer is actually using.
+@MainActor
+final class SessionControllerTests: XCTestCase {
+    nonisolated private static let suiteName = "group.com.alexmathews.cadence.tests"
+
+    /// A value wrapping the scratch suite; `UserDefaults(suiteName:)` hands back the
+    /// same instance each time, so re-making it per access costs nothing and keeps
+    /// the fixture free of mutable state to isolate.
+    private var store: SharedStore {
+        SharedStore(suiteName: Self.suiteName, reloadsWidgets: false)
+    }
+
+    nonisolated override func setUp() {
+        super.setUp()
+        Self.clearScratchSuite()
+    }
+
+    nonisolated override func tearDown() {
+        Self.clearScratchSuite()
+        super.tearDown()
+    }
+
+    nonisolated private static func clearScratchSuite() {
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        let plist = URL.homeDirectory
+            .appending(path: "Library/Preferences/\(suiteName).plist")
+        try? FileManager.default.removeItem(at: plist)
+    }
+
+    /// The ticker and `syncTicker` judge against the real clock, so fixture
+    /// sessions are anchored to it rather than to `Clock`'s fixed afternoon.
+    private func controller(
+        seeding state: SessionState? = nil,
+        preferences: Preferences? = nil
+    ) -> SessionController {
+        if let state { store.save(state) }
+        if let preferences { store.save(preferences) }
+        return SessionController(store: store, now: Date())
+    }
+
+    private var runningNow: SessionState {
+        let now = Date()
+        return .running(
+            plannedDuration: 25 * minute,
+            startedAt: now,
+            endsAt: now.addingTimeInterval(25 * minute),
+            segmentStartedAt: now
+        )
+    }
+
+    // MARK: - Ticker discipline (D1)
+
+    func testTheTickerRunsOnlyWhileRunning() {
+        XCTAssertTrue(controller(seeding: runningNow).isTicking, "running redraws")
+
+        XCTAssertFalse(controller(seeding: .idle()).isTicking, "idle has nothing to redraw")
+        XCTAssertFalse(
+            controller(
+                seeding: .paused(startedAt: Date(), remaining: 10 * minute, focusedBefore: 0)
+            ).isTicking,
+            "paused is frozen"
+        )
+        XCTAssertFalse(
+            controller(
+                seeding: .complete(
+                    startedAt: Date().addingTimeInterval(-25 * minute),
+                    completedAt: Date(),
+                    focusedBefore: 25 * minute
+                )
+            ).isTicking,
+            "complete is terminal"
+        )
+    }
+
+    /// A deadline that elapsed while the app was quit reads as complete on load
+    /// (D4), so the ticker must never start for it.
+    func testAnElapsedSessionLoadsWithoutStartingTheTicker() {
+        let started = Date().addingTimeInterval(-30 * minute)
+        let controller = controller(
+            seeding: .running(
+                startedAt: started,
+                endsAt: Date().addingTimeInterval(-5 * minute),
+                segmentStartedAt: started
+            )
+        )
+
+        XCTAssertEqual(controller.status, .complete)
+        XCTAssertFalse(controller.isTicking)
+    }
+
+    func testPausingStopsTheTickerAndResumingRestartsIt() {
+        let controller = controller(seeding: runningNow)
+        XCTAssertTrue(controller.isTicking)
+
+        controller.pause()
+        XCTAssertEqual(controller.status, .paused)
+        XCTAssertFalse(controller.isTicking)
+
+        controller.resume()
+        XCTAssertEqual(controller.status, .running)
+        XCTAssertTrue(controller.isTicking)
+
+        controller.reset()
+        XCTAssertFalse(controller.isTicking)
+    }
+
+    // MARK: - Preset selection
+
+    func testSelectingAPresetWhileIdleRescopesThePlanAndRemembersIt() {
+        let controller = controller(seeding: .idle(plannedDuration: 25 * minute))
+
+        controller.select(DurationPreset.fixed)
+
+        XCTAssertEqual(controller.state.plannedDuration, 45 * minute)
+        XCTAssertEqual(controller.preferences.lastUsedDuration, 45 * minute)
+        XCTAssertEqual(store.loadPreferences().lastUsedDuration, 45 * minute)
+    }
+
+    /// Duration selection is legal only in `idle` (§5). The guard has to be the
+    /// precondition and not the resulting plan: `selectDuration` rejects by
+    /// returning its input, which is indistinguishable from a duration that was
+    /// already selected, so inferring legality from the result let a running
+    /// session rewrite the preference.
+    func testSelectingAPresetWhileRunningLeavesBothThePlanAndThePreferenceAlone() {
+        let controller = controller(
+            seeding: runningNow,
+            preferences: Preferences(lastUsedDuration: 25 * minute)
+        )
+
+        controller.select(DurationPreset.fixed)
+
+        XCTAssertEqual(controller.state.plannedDuration, 25 * minute)
+        XCTAssertEqual(controller.preferences.lastUsedDuration, 25 * minute)
+        XCTAssertEqual(store.loadPreferences().lastUsedDuration, 25 * minute)
+    }
+
+    /// The nastier variant: `+5 min` grows the plan, so a clock-target row can come
+    /// to match `plannedDuration` exactly while a session runs.
+    func testAPresetMatchingAnExtendedPlanStillDoesNotMoveThePreference() {
+        let started = Date().addingTimeInterval(-25 * minute)
+        let controller = controller(
+            seeding: .complete(
+                startedAt: started,
+                completedAt: Date().addingTimeInterval(-1),
+                focusedBefore: 25 * minute
+            ),
+            preferences: Preferences(lastUsedDuration: 25 * minute)
+        )
+
+        controller.extend()
+        XCTAssertEqual(controller.state.plannedDuration, 30 * minute)
+
+        controller.select(DurationPreset(id: "30m", title: "30 minutes", duration: 30 * minute))
+
+        XCTAssertEqual(controller.preferences.lastUsedDuration, 25 * minute)
+    }
+
+    // MARK: - Write-through
+
+    func testATransitionTheContainerRefusesLeavesTheStateAlone() throws {
+        // `UserDefaults(suiteName:)` refuses the main bundle's own identifier, so
+        // this store has no container to write to.
+        let bundleID = try XCTUnwrap(Bundle.main.bundleIdentifier)
+        let unusable = SharedStore(suiteName: bundleID, reloadsWidgets: false)
+        XCTAssertFalse(unusable.save(SessionState()), "the suite must be unresolvable")
+
+        let controller = SessionController(store: unusable, now: Date())
+        let before = controller.state
+
+        controller.start()
+
+        XCTAssertEqual(controller.state, before, "an unwritten transition did not happen")
+        XCTAssertFalse(controller.isTicking)
+    }
+
+    /// P2: the container is canonical and the in-memory copy is a cache that
+    /// re-reads. This is the path activation, wake and KVO all land on.
+    func testRefreshAdoptsAWriteMadeBehindTheControllersBack() {
+        let controller = controller(seeding: .idle(plannedDuration: 25 * minute))
+        XCTAssertFalse(controller.isTicking)
+
+        store.save(runningNow)
+        controller.refresh()
+
+        XCTAssertEqual(controller.status, .running)
+        XCTAssertTrue(controller.isTicking, "adopting a running session starts the redraw")
+    }
+
+    /// A press arriving inside KVO's latency window must not be computed against
+    /// the stale cache, or it writes a state one revision old back over the newer
+    /// record (D2).
+    func testATransitionAppliesToTheStoredStateRatherThanTheStaleCache() {
+        let controller = controller(seeding: .idle(plannedDuration: 25 * minute))
+
+        // Another writer starts a titled session; the controller has not heard yet.
+        store.save(
+            .running(
+                title: "Design review",
+                startedAt: Date(),
+                endsAt: Date().addingTimeInterval(10 * minute),
+                segmentStartedAt: Date()
+            )
+        )
+
+        controller.pause()
+
+        XCTAssertEqual(controller.status, .paused, "pause applied to the newer record")
+        XCTAssertEqual(controller.state.title, "Design review")
+        XCTAssertEqual(store.loadSessionState(now: Date()).status, .paused)
+    }
+
+    /// `start` is illegal from `running` (§5), and a rejected transition still
+    /// hands back the reconciled base — so the cache ends up agreeing with disk
+    /// either way.
+    func testARejectedTransitionStillLeavesTheCacheAgreeingWithDisk() {
+        let controller = controller(seeding: runningNow)
+        let stored = runningNow
+        store.save(stored)
+
+        controller.start()
+
+        XCTAssertEqual(controller.state, store.loadSessionState(now: Date()))
+    }
+}

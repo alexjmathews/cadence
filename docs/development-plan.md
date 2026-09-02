@@ -104,6 +104,24 @@ the app and the widget visually identical.
 The 272 pt sheet requires `.menuBarExtraStyle(.window)`; the current `.menu` style
 cannot render it.
 
+**D7 — A clock target means what its label says; the buffer is meeting-only.**
+`To 2:30` ends at 2:30, so at 2:13 it reads `17 min`, not the `15 min` drawn in the
+dropdown mockup. Every preset row in that mockup is exactly two minutes short —
+which happens to equal both the 2 m buffer and a floor-to-nearest-5 — but §4
+defines `clockTargets` without a buffer, and a label that promises 2:30 while
+ending at 2:28 is a small lie the product doesn't need. The end-early buffer stays
+what §2.2 says it is: a rule for *meeting-linked* sessions, where walking in late
+is the thing being avoided. Mockup minute counts are therefore not authoritative;
+the derivation is.
+
+**D8 — `Quit Cadence` is a row in the sheet; launch-at-login is not.**
+The dropdown mockup shows neither, but Cadence is menu-bar-only: a user who never
+opens the window would otherwise have no way to quit it, since `⌘Q` needs the app
+promoted to regular first. Quit is added as a footer row below `Open Cadence`,
+growing the sheet past the mockup's height by one row. Launch-at-login is *not*
+surfaced there — it is a set-once preference, not a per-session action, and
+`LoginItemManager` stays unreferenced until Stage 5 gives it a home.
+
 ---
 
 ## 3. Stages
@@ -349,8 +367,16 @@ Rows are the interfaces doc's coverage matrix; cells are the stage that lands th
 | Pick from calendar events | — | 3 | 3 | 4 |
 | Dismiss / expand events | — | — | 3 | — |
 | Calendar refresh | — | — | 3 | — |
-| Session summary on complete | — | 1 | 2 | 4 |
+| Session summary on complete | — | 1 † | 2 | 4 |
 | Empty-calendar handling | — | 3 | 2 | 4 |
 
 Completion notification, Raycast / URL parity, launch at login, accessibility, and
 the visual pass are cross-cutting and land in stage 5.
+
+† **The dropdown's complete state carries the status word, not the summary line.**
+`menu-bar-dropdown--complete.png` shows `00:00 · complete` and no span — a
+`1:48–2:13 PM · 25 min focused` line does not fit beside 38 pt numerals in 272 pt,
+and the interfaces doc asks the dropdown only for "start a fresh session from the
+complete state". The full summary is the timer window's job (stage 2) and the
+medium widget's (stage 4). The matrix row stays ticked for the dropdown because
+the *complete state* is surfaced there; the span and focused total are not.

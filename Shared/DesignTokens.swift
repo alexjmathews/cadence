@@ -116,6 +116,52 @@ enum DesignTokens {
         static let mediumWidgetSize = CGSize(width: 364, height: 170)
         static let widgetRadius: CGFloat = 22
 
+        /// The dropdown's vertical rhythm and insets. The specification's row grid
+        /// (§3.1) covers the window only, so these are read off the
+        /// `menu-bar-dropdown--*` mockups at 2× — the composition reference — and
+        /// declared here rather than inlined, per §5.
+        enum Dropdown {
+            /// Numerals, progress rule, rows and footer share this text column.
+            static let horizontalPadding: CGFloat = 16
+            /// Buttons and dividers sit 4 pt outside the text column.
+            static let controlPadding: CGFloat = 12
+            static let topPadding: CGFloat = 14
+            /// Holds the 38 pt numerals and the status word on one baseline.
+            static let headerHeight: CGFloat = 46
+            static let headerToRule: CGFloat = 8
+            static let ruleToActions: CGFloat = 10
+            static let actionHeight: CGFloat = 30
+            static let actionGap: CGFloat = 7
+            static let actionsToDivider: CGFloat = 10
+            static let rowsTopPadding: CGFloat = 6
+            static let rowHeight: CGFloat = 27
+            /// Gap after the reserved event-color-bar slot, putting row titles 26 pt
+            /// in as the mockups measure them. Duration rows keep the slot so a
+            /// meeting row can appear among them without shifting any title
+            /// sideways.
+            static let rowBarGap: CGFloat = 7
+            static let rowsBottomPadding: CGFloat = 6
+            /// `Open Cadence ⌘O`.
+            static let footerHeight: CGFloat = 40
+        }
+
+        /// The status item's three states. The system owns the item's height (§3 —
+        /// 28 pt); `pillHeight` is the countdown chip drawn inside it, which the
+        /// mockups measure at 20 and which therefore floats with bar margin rather
+        /// than filling the chrome.
+        enum StatusItem {
+            static let glyphSize: CGFloat = 16
+            static let pillHeight: CGFloat = 20
+            static let pillHorizontalPadding: CGFloat = 3
+            static let pillContentGap: CGFloat = 5
+            /// The accent's weight in the chip. The mockups lay it over the menu bar
+            /// itself; the built pill lays it over `Surface.base` and ships opaque,
+            /// because a non-template bitmap cannot follow a light bar. Same
+            /// rendered color on a dark bar, legible on a light one — see
+            /// `StatusPill`.
+            static let pillTintOpacity: Double = 0.28
+        }
+
         /// Reserved row heights are the whole mechanism behind the clock and
         /// buttons never moving between states: the rows are always allocated and
         /// only their contents change.
@@ -166,6 +212,9 @@ enum DesignTokens {
         static let listRowGap: CGFloat = 6
 
         static let hairlineWidth: CGFloat = 0.5
+        /// Press feedback. The specification does not name it; one value shared by
+        /// every control is what keeps buttons and rows feeling like one surface.
+        static let pressedOpacity: Double = 0.8
         /// The window's containment ring: a 0.5pt stroke, not a shadow. The spec
         /// writes it as a shadow spread, which SwiftUI has no equivalent for.
         static let windowRingWidth: CGFloat = 0.5

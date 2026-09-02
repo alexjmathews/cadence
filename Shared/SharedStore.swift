@@ -28,10 +28,15 @@ struct SharedStore: @unchecked Sendable {
         static let calendarSnapshot = "calendarSnapshot"
     }
 
+    /// The suite this store reads and writes. Exposed so an observer watches the
+    /// same container the store uses, rather than assuming the production one.
+    let suiteName: String
+
     private let defaults: UserDefaults?
     private let reloadsWidgets: Bool
 
     init(suiteName: String = SharedStore.appGroupID, reloadsWidgets: Bool = true) {
+        self.suiteName = suiteName
         self.defaults = UserDefaults(suiteName: suiteName)
         self.reloadsWidgets = reloadsWidgets
     }

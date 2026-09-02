@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct CadenceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var loginItem = LoginItemManager()
+    @State private var controller = SessionController()
 
     var body: some Scene {
         // The main window. Launch is suppressed so starting at login stays
@@ -14,13 +14,13 @@ struct CadenceApp: App {
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
 
-        // The ink mark from the icon handoff. The imageset carries template
-        // rendering intent, so AppKit handles light/dark menu bars for us —
-        // don't tint it here.
-        MenuBarExtra("Cadence", image: "CadenceStatusIdle") {
-            MenuBarContentView(loginItem: loginItem)
+        // A window, not a menu (D6): the 272 pt sheet cannot be drawn as one.
+        MenuBarExtra {
+            MenuBarDropdown(controller: controller)
+        } label: {
+            MenuBarStatusLabel(controller: controller)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 }
 
@@ -29,7 +29,7 @@ enum WindowID {
 }
 
 /// Stands in for the timer window until the window stage builds it. Deliberately
-/// inert: the model, not a view, is what this stage lands.
+/// inert: the menu bar, not the window, is what this stage lands.
 private struct TimerWindowPlaceholder: View {
     var body: some View {
         Color.clear

@@ -110,6 +110,33 @@ final class DesignTokensTests: XCTestCase {
         XCTAssertLessThan(rows, DesignTokens.Layout.windowSize.height, "the grid must fit the fixed window")
     }
 
+    /// The dropdown's rhythm is read off the mockups rather than the spec's row
+    /// grid, so the assertion that matters is that it composes to the sheet that is
+    /// actually built: 272 pt wide per §3, and the mockup's 283 pt of rows plus the
+    /// one extra footer row D8 adds for `Quit Cadence`. (The mockup itself measures
+    /// 288 × 284; §6 gives this document the width.)
+    func testDropdownRhythmComposesToTheBuiltSheet() {
+        typealias Sheet = DesignTokens.Layout.Dropdown
+
+        let height = Sheet.topPadding + Sheet.headerHeight
+            + Sheet.headerToRule + DesignTokens.Component.compactProgressRuleHeight
+            + Sheet.ruleToActions + Sheet.actionHeight + Sheet.actionsToDivider
+            + DesignTokens.Component.hairlineWidth
+            + Sheet.rowsTopPadding + 4 * Sheet.rowHeight + Sheet.rowsBottomPadding
+            + DesignTokens.Component.hairlineWidth
+            + 2 * Sheet.footerHeight
+        XCTAssertEqual(height, 323)
+
+        // The text column is inset further than the controls, which is what puts
+        // the numerals over the progress rule and the buttons outside both.
+        XCTAssertGreaterThan(Sheet.horizontalPadding, Sheet.controlPadding)
+        // Row titles clear the reserved event-color-bar slot.
+        XCTAssertEqual(
+            Sheet.horizontalPadding + DesignTokens.Component.eventColorBarWidth + Sheet.rowBarGap,
+            26
+        )
+    }
+
     // MARK: - Components
 
     func testComponentMetricsMatchTheSpecification() {
