@@ -1,0 +1,175 @@
+# Cadence — Visual Specification
+
+Design reference for the appearance of all four surfaces (menu bar status item,
+dropdown, timer window, widgets). The companion to
+[Data Model & State Machine](data-model-and-state-machine.md), which covers what
+the surfaces *read*; this covers how they *look*.
+
+Scope: color, type, sizing, and component geometry. Layout behaviour is specified
+only where it exists to keep something from moving between states.
+
+- [1. Color](#1-color)
+- [2. Type](#2-type)
+- [3. Sizing](#3-sizing)
+- [4. Components](#4-components)
+- [5. Implementation notes](#5-implementation-notes)
+- [6. Mockups](#6-mockups)
+
+---
+
+## 1. Color
+
+### 1.1 Surfaces
+
+| Token | Value | Use |
+|---|---|---|
+| Surface | `#0b1024` | Window, dropdown sheet, widget background |
+| Surface / complete | `#04211c` | Same surfaces once a session finishes — the whole shell recolors, title bar included |
+| Sheet | `rgba(32,32,35,0.94)` | Dropdown material, with vibrancy behind it |
+| Fill / subtle | `rgba(255,255,255,0.07)` | Chips, secondary buttons, list rows |
+| Fill / hover | `rgba(47,107,255,0.13)` | Row and preset hover |
+| Hairline | `rgba(255,255,255,0.12)` | Dividers, 0.5px borders |
+| Track | `rgba(255,255,255,0.10)` | Progress rule track |
+
+### 1.2 Accents
+
+| Token | Value | Use |
+|---|---|---|
+| Accent | `#2F6BFF` | Primary button, progress fill, running glyph, start actions |
+| Accent / text | `#8FB4FF` | Accent-colored labels on dark ("Timer until 3:30") |
+| Complete | `#2FE0A6` | Progress fill, glyph and primary button in the complete state |
+| Complete / text | `#6FEFC6` | "Session complete" heading, complete numerals |
+| Event | `#FF8A3D` | Calendar event color bar, event-named sessions |
+
+Calendar rows inherit the source calendar's own color — `#2F6BFF`, `#2FE0A6`,
+`#A184C8` all appear in the day list. Dismissed rows drop their bar to 40% and the
+title to `rgba(235,235,245,0.42)`.
+
+### 1.3 Text on dark
+
+| Level | Value |
+|---|---|
+| Primary | `#f2f2f5` |
+| Secondary | `rgba(235,235,245,0.58)` |
+| Tertiary | `rgba(235,235,245,0.50)` |
+| Quaternary | `rgba(235,235,245,0.34)` |
+| On accent | `#fff` on `#2F6BFF` · `#04211c` on `#2FE0A6` |
+
+---
+
+## 2. Type
+
+Two families only. UI text is the system face; anything that counts is monospaced
+with tabular figures so digits never shift width.
+
+| Role | Family | Size / weight | Notes |
+|---|---|---|---|
+| Window numerals | IBM Plex Mono | 92px / 500, `-6px` tracking | tabular-nums; editable in place when stopped |
+| Dropdown numerals | IBM Plex Mono | 38px / 500, `-1.5px` | |
+| Widget numerals | IBM Plex Mono | 44px / 500, `-2.5px` | SwiftUI `.timer` text style in the real build |
+| Section label | System | 11px / 600, `0.5px`, uppercase | "TODAY · WEDNESDAY" |
+| Widget pane label | System | 10.5px / 600, `0.8px`, uppercase | "IN SESSION", "SESSION COMPLETE" |
+| Button | System | 14px / 600 window · 12.5px / 600 dropdown + widget | |
+| Event title | System | 13.5px / 400 window header · 13px / 600 strip + widget pane | |
+| Body / row | System | 13px / 400 | Menu rows, day list titles |
+| Status line | System | 12.5px / 400 | "running · ends 2:27 PM" |
+| Caption | System | 12px / 400 | Event meta, session summary |
+| Micro | System | 11.5px / 400 | "end early by", sync time |
+| Monospaced meta | IBM Plex Mono | 12px list times · 11.5px preset lengths, buffer chips | tabular |
+
+System face is `-apple-system` / SF Pro Text. Ship on SF and reserve IBM Plex Mono
+for numerals; `ui-monospace` (SF Mono) is an acceptable substitute if Plex can't be
+bundled.
+
+---
+
+## 3. Sizing
+
+| Surface | Size | Radius |
+|---|---|---|
+| Timer window | 520 × 414 pt, fixed | 12 |
+| Dropdown sheet | 272 pt wide | 12 |
+| Menu bar status item | 28 pt tall (system) | 5 on the countdown pill |
+| Widget · small | 170 × 170 pt | 22 |
+| Widget · medium | 364 × 170 pt | 22 |
+
+### 3.1 Window row grid
+
+Why the clock and buttons never move between states:
+
+| Row | Height | Contents |
+|---|---|---|
+| Event title | 20 | Event-named sessions only; reserved otherwise |
+| Numerals | 96 (+10 above) | |
+| Swap slot | 62 (+10 above) | Idle: presets + buffer. Running / complete: 5px rule + status line |
+| Buttons | 40 (+6 above) | |
+| Calendar strip | 68, fixed | Footer; holds its height when empty |
+
+The reserved event-title row and the fixed-height swap slot and strip are the whole
+mechanism behind "without the layout jumping" and "the quick durations disappear
+once a session starts" — the rows are always allocated, only their contents change.
+
+---
+
+## 4. Components
+
+| Element | Spec |
+|---|---|
+| Progress rule | 5px tall, 3px radius (4px / 2px in dropdown and widget) |
+| Primary button | 10 × 32px padding, 9px radius |
+| Secondary button | 10 × 18px padding, 9px radius, 0.5px hairline |
+| Preset chip | 7 × 13px padding, 8px radius |
+| Buffer chip | 2 × 6px padding, 4px radius |
+| Icon button | 28 × 28 strip · 24 × 24 refresh, 6–7px radius |
+| Event color bar | 3px wide, 2px radius |
+| List row | 9 × 8px padding, 8px radius, 6px gap |
+| Shadow · window | `0 24px 60px rgba(0,0,0,0.4)` + `0 0 0 0.5px rgba(0,0,0,0.3)` |
+| Shadow · sheet | `0 12px 34px rgba(0,0,0,0.44)` |
+| Shadow · widget | `0 10px 30px rgba(0,0,0,0.42)` |
+
+Widget tap targets are 30pt minimum, and every widget control is a single App
+Intent.
+
+---
+
+## 5. Implementation notes
+
+**Tokens live in one place.** All values above are declared once in
+`Shared/DesignTokens.swift` and referenced by name from every surface. No literal
+hex or px in a view body — the app and widget extension both compile the token
+file, which is what keeps the two processes visually identical.
+
+**The px values are pt values.** The spec was authored against an HTML design
+export; on macOS every number here is read as points. No conversion.
+
+**State drives surface color, not a modifier per view.** `Surface` and
+`Surface / complete` swap at the shell level so the window's title bar recolors
+with its content. Derive from `effectiveStatus(now)`, never the stored `status`.
+
+**Countdown text.** The window and widget use monospaced tabular digits so the
+numerals don't reflow as they count. The menu-bar item redraws from a 1 s display
+ticker (see the development plan, D1); the widget uses `Text(timerInterval:)`.
+Neither is authoritative for completion.
+
+---
+
+## 6. Mockups
+
+Nineteen 2× PNG mockups — one per surface × state — live in
+[docs/design/mockups](design/mockups), indexed by
+[their README](design/mockups/README.md). They are the composition reference for
+every build stage.
+
+| Surface | Mockups |
+|---|---|
+| Timer window | `timer-window--idle-with-event`, `--idle-next-event-suggested`, `--idle-no-events`, `--idle-day-list-expanded`, `--running-meeting-session`, `--running-no-event`, `--complete` |
+| Dropdown | `menu-bar-dropdown--idle`, `--running`, `--complete`, `--no-events` |
+| Widget small | `widget-small--idle`, `--running`, `--complete` |
+| Widget medium | `widget-medium--idle-suggestions`, `--running`, `--running-no-event`, `--complete`, `--complete-no-event` |
+
+The menu bar status item has no standalone mockup; its three states appear in the
+menu bar chrome above each dropdown mockup.
+
+Each stage's exit criteria include a side-by-side against the matching mockups.
+Where a mockup and this document disagree, this document wins for measurements and
+the mockup wins for composition — and the discrepancy gets fixed here.
