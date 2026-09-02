@@ -9,10 +9,22 @@ struct CadenceApp: App {
         // The main window. Launch is suppressed so starting at login stays
         // quiet in the menu bar; the user opens it explicitly.
         Window("Cadence", id: WindowID.main) {
-            TimerWindowPlaceholder()
+            TimerWindow(controller: controller)
         }
-        .windowResizability(.contentSize)
+        // 520 × 414 is the window's default and minimum *frame* (§3, §3.2), and
+        // `.defaultSize` sizes the content view — which `.hiddenTitleBar` leaves a
+        // title bar shorter than the frame. So both this and the content's own
+        // `minWidth` / `minHeight` are `windowContentSize`, and the frame comes out
+        // at the specified 520 × 414. See `WindowGeometry`.
+        .defaultSize(
+            width: DesignTokens.Layout.windowContentSize.width,
+            height: DesignTokens.Layout.windowContentSize.height
+        )
         .defaultLaunchBehavior(.suppressed)
+        // The shell recolors on completion, title bar included (§5 of the visual
+        // spec), so the title bar is transparent and `WindowChrome` carries the color
+        // onto the `NSWindow` itself.
+        .windowStyle(.hiddenTitleBar)
 
         // A window, not a menu (D6): the 272 pt sheet cannot be drawn as one.
         MenuBarExtra {
@@ -26,17 +38,4 @@ struct CadenceApp: App {
 
 enum WindowID {
     static let main = "main"
-}
-
-/// Stands in for the timer window until the window stage builds it. Deliberately
-/// inert: the menu bar, not the window, is what this stage lands.
-private struct TimerWindowPlaceholder: View {
-    var body: some View {
-        Color.clear
-            .frame(
-                width: DesignTokens.Layout.windowSize.width,
-                height: DesignTokens.Layout.windowSize.height
-            )
-            .background(DesignTokens.Surface.base)
-    }
 }

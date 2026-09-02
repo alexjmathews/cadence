@@ -162,6 +162,152 @@ final class SessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.preferences.lastUsedDuration, 25 * minute)
     }
 
+    // MARK: - Typed duration
+
+    /// The window's editable numerals commit through the same door as a preset
+    /// row, so they carry the same guard and the same preference write.
+    func testATypedDurationWhileIdleRescopesThePlanAndRemembersIt() {
+        let controller = controller(seeding: .idle(plannedDuration: 25 * minute))
+
+        controller.selectDuration(50 * minute)
+
+        XCTAssertEqual(controller.state.plannedDuration, 50 * minute)
+        XCTAssertEqual(store.loadPreferences().lastUsedDuration, 50 * minute)
+    }
+
+    func testATypedDurationWhilePausedIsRefused() {
+        let started = Date().addingTimeInterval(-10 * minute)
+        let controller = controller(
+            seeding: .paused(startedAt: started, remaining: 15 * minute, focusedBefore: 10 * minute),
+            preferences: Preferences(lastUsedDuration: 25 * minute)
+        )
+
+        controller.selectDuration(50 * minute)
+
+        XCTAssertEqual(controller.state.plannedDuration, 25 * minute)
+        XCTAssertEqual(store.loadPreferences().lastUsedDuration, 25 * minute)
+    }
+
+    /// `SessionTransitions.selectDuration` guards `duration > 0` as well as the
+    /// status, and rejects by returning its input — so the preference has to follow
+    /// the plan rather than the press. §2.2 says `lastUsedDuration` exists so idle
+    /// shows something sensible, and `lastUsedDuration: 0` beside `plannedDuration: 9`
+    /// is neither sensible nor true.
+    func testADurationOfZeroMovesNeitherThePlanNorThePreference() {
+        let controller = controller(
+            seeding: .idle(plannedDuration: 25 * minute),
+            preferences: Preferences(lastUsedDuration: 25 * minute)
+        )
+
+        controller.selectDuration(0)
+
+        XCTAssertEqual(controller.state.plannedDuration, 25 * minute)
+        XCTAssertEqual(controller.preferences.lastUsedDuration, 25 * minute)
+        XCTAssertEqual(store.loadPreferences().lastUsedDuration, 25 * minute)
+    }
+
+    func testANegativeDurationIsRefusedTheSameWay() {
+        let controller = controller(
+            seeding: .idle(plannedDuration: 25 * minute),
+            preferences: Preferences(lastUsedDuration: 25 * minute)
+        )
+
+        controller.selectDuration(-60)
+
+        XCTAssertEqual(controller.state.plannedDuration, 25 * minute)
+        XCTAssertEqual(store.loadPreferences().lastUsedDuration, 25 * minute)
+    }
+
+    // MARK: - Banking a completion the ticker noticed (D4)
+
+    /// The ticker refreshing `now` is enough for every surface to *read* complete
+    /// (D4), but the stored record still said `running` with an elapsed `endsAt`, so
+    /// `completedAt` was nil and the window's summary line had nothing to print until
+    /// the app was deactivated and reactivated.
+    ///
+    /// Persisting the derived result is reconciliation, not the ticker deciding
+    /// completion: the deadline decided, and `reconciled` is the same function every
+    /// other entry point runs.
+    func testTheTickerBanksACompletionSoTheSummaryLineExists() {
+        let started = Date().addingTimeInterval(-2 * minute)
+        let controller = controller(
+            seeding: .running(
+                plannedDuration: 2 * minute,
+                startedAt: started,
+                endsAt: Date().addingTimeInterval(0.4),
+                segmentStartedAt: started
+            )
+        )
+        XCTAssertTrue(controller.isTicking)
+        XCTAssertNil(controller.state.completedAt)
+
+        wait(seconds: 2.5)
+
+        XCTAssertEqual(controller.status, .complete)
+        XCTAssertFalse(controller.isTicking, "a banked completion stops the redraw")
+        XCTAssertEqual(controller.state.status, .complete, "the record, not just the derivation")
+        XCTAssertNotNil(controller.state.completedAt)
+        XCTAssertNotNil(controller.state.span, "which is what the summary line is built from")
+        XCTAssertNotNil(controller.state.summaryLine(Date()))
+        XCTAssertEqual(store.loadSessionState(now: Date()).status, .complete)
+    }
+
+    /// Idempotent: `reconciled` returns an already-banked completion unchanged, so a
+    /// second pass neither rewrites the record nor moves `completedAt`.
+    func testBankingACompletionTwiceChangesNothing() {
+        let started = Date().addingTimeInterval(-2 * minute)
+        let controller = controller(
+            seeding: .running(
+                plannedDuration: 2 * minute,
+                startedAt: started,
+                endsAt: Date().addingTimeInterval(0.4),
+                segmentStartedAt: started
+            )
+        )
+
+        wait(seconds: 2.5)
+        let banked = controller.state
+
+        controller.refresh()
+
+        XCTAssertEqual(controller.state, banked)
+        XCTAssertEqual(store.loadSessionState(now: Date()), banked)
+    }
+
+    private func wait(seconds: TimeInterval) {
+        let elapsed = expectation(description: "the ticker has had a chance to fire")
+        Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in elapsed.fulfill() }
+        wait(for: [elapsed], timeout: seconds + 5)
+    }
+
+    // MARK: - End-early buffer
+
+    /// The buffer is a preference in the App Group, so it survives the process it
+    /// was set in (§2.2) — this is the relaunch round-trip in miniature.
+    func testTheBufferIsWrittenToTheContainerAndReadBackByAFreshController() {
+        let controller = controller()
+
+        controller.setBuffer(180)
+
+        XCTAssertEqual(controller.preferences.endEarlyBuffer, 180)
+        XCTAssertEqual(
+            SessionController(store: store, now: Date()).preferences.endEarlyBuffer,
+            180
+        )
+    }
+
+    /// Changing it mid-session retimes nothing: the buffer is materialised into a
+    /// deadline at start time (P4), never applied to one already running.
+    func testChangingTheBufferDoesNotRetimeARunningSession() {
+        let running = runningNow
+        let controller = controller(seeding: running)
+
+        controller.setBuffer(0)
+
+        XCTAssertEqual(controller.state.endsAt, running.endsAt)
+        XCTAssertEqual(controller.state.plannedDuration, running.plannedDuration)
+    }
+
     // MARK: - Write-through
 
     func testATransitionTheContainerRefusesLeavesTheStateAlone() throws {

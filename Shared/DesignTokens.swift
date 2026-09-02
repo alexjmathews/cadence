@@ -23,9 +23,24 @@ enum DesignTokens {
         /// Dividers and hairline borders.
         static let hairline = Color(.sRGB, white: 1, opacity: 0.12)
         static let progressTrack = Color(.sRGB, white: 1, opacity: 0.10)
+        /// The window's calendar-strip footer (§3.1). The specification names the
+        /// row's height but not its wash; the `timer-window--*` mockups measure it
+        /// at white 4.5% over both shells — lighter than `fillSubtle`, which is a
+        /// chip, not a surface.
+        static let fillStrip = Color(.sRGB, white: 1, opacity: 0.045)
+        /// A selected chip, as the buffer row's active value is drawn. §1.1 gives
+        /// accent fills only a 13% hover; the mockups measure the *selected* state at
+        /// 30%, which is what separates it from a row the pointer merely rests on.
+        static let fillAccentSelected = Color(hex: 0x2F6BFF, opacity: 0.30)
         /// Stroked at `Component.windowRingWidth` around the window, containing it
         /// against a light desktop.
         static let windowRing = Color(.sRGB, white: 0, opacity: 0.30)
+        /// The selection drawn behind an editing numeral. Left to itself macOS puts
+        /// its system grey there — a solid slab roughly 117 × 108 pt over the white
+        /// or mint digits, which appears in no mockup and in nothing §1.1 names. The
+        /// accent at the same weight `fillAccentSelected` gives the buffer row's
+        /// selected chip is the relationship the window already uses for "selected".
+        static let numeralSelection = Color(hex: 0x2F6BFF, opacity: 0.30)
     }
 
     enum Accent {
@@ -37,6 +52,11 @@ enum DesignTokens {
         static let complete = Color(hex: 0x2FE0A6)
         /// "Session complete" heading and the complete numerals.
         static let completeText = Color(hex: 0x6FEFC6)
+        /// The summary line under that heading. §1.2 gives the complete shell one
+        /// text color; the mockup draws the span and focused total at 72% of it, so
+        /// the heading still leads. The grey `TextColor` levels would break the mint
+        /// wash.
+        static let completeCaption = Color(hex: 0x6FEFC6, opacity: 0.72)
         /// Calendar event color bar and event-named sessions.
         static let event = Color(hex: 0xFF8A3D)
 
@@ -69,8 +89,23 @@ enum DesignTokens {
     /// monospaced with tabular figures so digits never shift width. Ships on SF;
     /// `ui-monospace` substitutes for IBM Plex Mono where it cannot be bundled.
     enum Typography {
-        static let windowNumerals = Font.system(size: 92, weight: .medium, design: .monospaced)
+        static let windowNumeralsSize: CGFloat = 92
+        static let windowNumerals = Font.system(
+            size: windowNumeralsSize,
+            weight: .medium,
+            design: .monospaced
+        )
         static let windowNumeralsTracking: CGFloat = -6
+        /// The numerals' AppKit face. D9's refusal happens at the responder, so the
+        /// two editable halves are `NSTextField`s rather than SwiftUI `TextField`s
+        /// and need the font in `NSFont` form. `Font.system(design: .monospaced)`
+        /// and `NSFont.monospacedSystemFont` resolve to the same face at the same
+        /// size and weight, which is what keeps the editable numerals and the
+        /// rendered ones the same glyphs. Computed rather than stored because
+        /// `NSFont` is not `Sendable`; it is cheap and cached by AppKit.
+        static var windowNumeralsNSFont: NSFont {
+            NSFont.monospacedSystemFont(ofSize: windowNumeralsSize, weight: .medium)
+        }
         static let dropdownNumerals = Font.system(size: 38, weight: .medium, design: .monospaced)
         static let dropdownNumeralsTracking: CGFloat = -1.5
         static let widgetNumerals = Font.system(size: 44, weight: .medium, design: .monospaced)
@@ -106,7 +141,23 @@ enum DesignTokens {
     // MARK: - Sizing
 
     enum Layout {
+        /// The timer window's **default and minimum** size (§3), not its only one:
+        /// the window is resizable, and §3.2 says where the extra space goes. This
+        /// is the *frame* — what the specification measures and what a screenshot
+        /// of the window is.
         static let windowSize = CGSize(width: 520, height: 414)
+        /// A standard macOS title bar, which `.windowStyle(.hiddenTitleBar)` makes
+        /// transparent but does **not** remove from the frame: the SwiftUI content
+        /// view is the frame less this. Asserted against a real `NSWindow` in
+        /// `DesignTokensTests`, because a system that measured it differently would
+        /// otherwise silently ship a differently sized window.
+        static let windowTitlebarHeight: CGFloat = 32
+        /// The size the SwiftUI content is laid out to, so that the *frame* is
+        /// `windowSize`. Giving SwiftUI 414 shipped a 446 pt window with every row
+        /// sitting 32 pt lower against the top edge than the mockup draws it.
+        static var windowContentSize: CGSize {
+            CGSize(width: windowSize.width, height: windowSize.height - windowTitlebarHeight)
+        }
         static let windowRadius: CGFloat = 12
         static let dropdownWidth: CGFloat = 272
         static let dropdownRadius: CGFloat = 12
@@ -177,6 +228,74 @@ enum DesignTokens {
             static let buttonsTopInset: CGFloat = 6
             /// Footer; holds its height when empty.
             static let calendarStripHeight: CGFloat = 68
+
+            // The specification's table (§3.1) gives the five row heights. The
+            // insets, columns and gaps below place those rows inside the fixed
+            // 520 × 414 pt frame and are read off the `timer-window--*` mockups at
+            // 2× — the composition reference — rather than inlined, per §5.
+
+            /// The *minimum* space between the window's own top edge and the reserved
+            /// event-title row, at the window's default height. The title bar is
+            /// transparent, so the shell color reaches the traffic lights and this
+            /// inset is what keeps the first row clear of them. It is measured from
+            /// the frame, which is what the mockup measures.
+            ///
+            /// Per §3.2 this is one of the two flexible regions: extra window height
+            /// is split between here and `numeralsToSwapSlotInset`, keeping the
+            /// numerals block optically centred while every row keeps its height.
+            static let topInset: CGFloat = 49
+            /// `topInset` as the *content view* sees it. The content view starts a
+            /// title bar below the frame's top edge (`windowTitlebarHeight`), so the
+            /// grid — which lives inside the content view — lays out the difference
+            /// and the row still lands 49 pt below the window's own edge.
+            static var contentTopInset: CGFloat {
+                topInset - DesignTokens.Layout.windowTitlebarHeight
+            }
+            /// The other flexible region (§3.2) — zero at the default height, and
+            /// half of any extra beyond it.
+            static let numeralsToSwapSlotInset: CGFloat = 0
+            /// Fixed slack between the button row and the footer. It does *not*
+            /// stretch: §3.2 puts the growth around the numerals, so the transport
+            /// stays where the eye left it however tall the window gets.
+            static let buttonsToStripGap: CGFloat = 53
+            /// A caret-visible floor for an emptied numeral field, at roughly one
+            /// 92 pt monospaced digit. Without it a cleared field collapses to zero
+            /// width and takes the caret with it.
+            static let numeralFieldMinimumWidth: CGFloat = 50
+            /// The progress rule's column, and the widest any row may run.
+            static let horizontalPadding: CGFloat = 40
+            /// The event-title row's color bar and the gap to the title.
+            static let eventTitleBarHeight: CGFloat = 14
+            static let eventTitleBarGap: CGFloat = 8
+            /// Between the primary and secondary buttons.
+            static let buttonGap: CGFloat = 10
+            /// Between quick-duration chips, and from that row to the buffer row.
+            static let presetChipGap: CGFloat = 6
+            static let presetsToBufferGap: CGFloat = 6
+            /// Between the "end early by" label and the buffer chips, and between
+            /// the chips themselves.
+            static let bufferChipGap: CGFloat = 4
+            /// From the progress rule to the line beneath it, in both the running
+            /// and the complete slot.
+            static let ruleToStatusGap: CGFloat = 11
+
+            /// The strip's own insets. Its 68 pt is fixed from day one, so the
+            /// empty state is laid out on the same column the event row will use.
+            static let stripHorizontalPadding: CGFloat = 16
+            /// From the event color bar's slot to the text beside it.
+            static let stripBarGap: CGFloat = 11
+            /// The color bar runs the height of the strip's content band, not the
+            /// strip.
+            static let stripBarHeight: CGFloat = 34
+            /// Between the strip's trailing controls.
+            static let stripControlGap: CGFloat = 12
+            /// The `All events ☰` button's reserved width, and the gap between its
+            /// label and its glyph. The button is shipped disabled in stage 2 and
+            /// wired up in stage 3; reserving the width now is what keeps that from
+            /// shoving the refresh icon 118 pt left and reflowing the strip's
+            /// trailing edge.
+            static let stripAllEventsWidth: CGFloat = 106
+            static let stripAllEventsGap: CGFloat = 7
         }
     }
 

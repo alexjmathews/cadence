@@ -43,11 +43,10 @@ final class SessionController {
     /// hold D1's discipline — running and nothing else.
     var isTicking: Bool { ticker != nil }
 
-    /// The countdown as `MM:SS`, the one form all three status-item states and the
-    /// dropdown numerals share.
+    /// The countdown, in the one form every surface shares — window numerals,
+    /// dropdown numerals, and the status-item pill (`ClockFormatter`).
     var clockText: String {
-        let seconds = Int(state.remaining(now).rounded(.up))
-        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+        ClockFormatter.text(state.remaining(now))
     }
 
     /// `45 minutes` plus the two half-hour targets, rebuilt against the current
@@ -89,13 +88,45 @@ final class SessionController {
     /// duration that was already selected; reading the status directly is what
     /// keeps a running session from rewriting the preference underneath itself.
     func select(_ preset: DurationPreset) {
+        selectDuration(preset.duration)
+    }
+
+    /// The editable numerals' commit path, and the one `select(_:)` funnels
+    /// through. Same guard, same preference write: a typed duration and a preset
+    /// row are the same act (§5's third guard covers "presets and the editable
+    /// numerals alike").
+    ///
+    /// The preference follows the *plan*, not the press. `SessionTransitions.
+    /// selectDuration` guards `duration > 0` as well as the status and rejects by
+    /// returning its input, so a press the transition refused must not leave
+    /// `lastUsedDuration: 0` behind it — §2.2 says that field exists so idle shows
+    /// something sensible, and zero is not.
+    func selectDuration(_ duration: TimeInterval) {
         let now = Date()
         self.now = now
         guard state.effectiveStatus(now) == .idle else { return }
 
-        apply { SessionTransitions.selectDuration($0, duration: preset.duration, now: $1) }
+        apply { SessionTransitions.selectDuration($0, duration: duration, now: $1) }
+
+        // `apply` transitions from the container, which may hold a newer record than
+        // the status checked above, and a dropped write leaves the plan alone. Both
+        // read the same way here: the plan did not move, so neither does the
+        // preference.
+        guard status == .idle, state.plannedDuration == duration else { return }
+        guard preferences.lastUsedDuration != duration else { return }
+
         var next = preferences
-        next.lastUsedDuration = preset.duration
+        next.lastUsedDuration = duration
+        save(next)
+    }
+
+    /// Writes the end-early buffer (§2.2). Legal in every state: the buffer is
+    /// materialised into a deadline at start time (P4), so changing it never
+    /// retimes the session that is already running.
+    func setBuffer(_ seconds: TimeInterval) {
+        guard seconds != preferences.endEarlyBuffer else { return }
+        var next = preferences
+        next.endEarlyBuffer = seconds
         save(next)
     }
 
@@ -227,9 +258,23 @@ final class SessionController {
 
     private func tick() {
         now = Date()
-        // The deadline has passed: the surfaces already read `complete` (D4), so
-        // there is nothing left to redraw.
-        if state.effectiveStatus(now) != .running { syncTicker() }
+        guard state.effectiveStatus(now) != .running else { return }
+
+        // The deadline has passed. Every surface already *reads* complete (D4), but
+        // the stored record still says `running` with an elapsed `endsAt`, so
+        // `completedAt` is nil and the window's summary line has nothing to print.
+        // Banking the completion once fixes that.
+        //
+        // This is not the ticker deciding completion (D1): the deadline decided, and
+        // `reconciled` merely persists the derived result — which is the
+        // reconciliation D4 already sanctions, and which every other entry point
+        // (load, refresh, any transition) performs on the same terms. It is
+        // idempotent: an already-banked completion is returned unchanged, so `apply`
+        // writes nothing.
+        apply { SessionTransitions.reconciled($0, now: $1) }
+        // `apply` re-syncs only when the state moved, and the ticker has to stop
+        // either way.
+        syncTicker()
     }
 }
 

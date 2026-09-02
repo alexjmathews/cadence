@@ -107,7 +107,65 @@ final class DesignTokensTests: XCTestCase {
             + Row.swapSlotTopInset + Row.swapSlotHeight
             + Row.buttonsTopInset + Row.buttonsHeight
             + Row.calendarStripHeight
-        XCTAssertLessThan(rows, DesignTokens.Layout.windowSize.height, "the grid must fit the fixed window")
+        XCTAssertLessThan(rows, DesignTokens.Layout.windowSize.height, "the grid must fit the window")
+
+        // The window is resizable (§3.2), so the grid's rows plus the two flexible
+        // regions at their minimums plus the fixed gap above the footer must compose
+        // to *exactly* the default height — anything else and the default size is
+        // already stretched or already clipped.
+        //
+        // "The default height" is the height of the thing the grid is laid out in,
+        // which is the content view: a title bar shorter than the frame §3 measures.
+        // Composing to 414 while the content view was 414 is precisely how the
+        // shipped window ended up 446.
+        XCTAssertEqual(
+            rows + Row.contentTopInset + Row.numeralsToSwapSlotInset + Row.buttonsToStripGap,
+            DesignTokens.Layout.windowContentSize.height,
+            "the rows and their insets must compose to the content view's default height"
+        )
+        // And measured from the window's own top edge, which is what the mockup
+        // measures, the first row still clears the traffic lights by 49 pt.
+        XCTAssertEqual(
+            Row.contentTopInset + DesignTokens.Layout.windowTitlebarHeight,
+            Row.topInset
+        )
+    }
+
+    /// The composition above is necessary and was not sufficient: it held while the
+    /// shipped window was 446 pt, because `.windowStyle(.hiddenTitleBar)` leaves the
+    /// SwiftUI content a title bar shorter than the frame. So the criterion the
+    /// specification actually states — the *window* is 520 × 414 — is asserted here
+    /// against a real `NSWindow`, which is also the only honest check that
+    /// `windowTitlebarHeight` is the height this system adds.
+    @MainActor
+    func testAWindowSizedToTheGridHasTheSpecifiedFrame() {
+        let window = NSWindow(
+            contentRect: CGRect(origin: .zero, size: DesignTokens.Layout.windowContentSize),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        XCTAssertEqual(
+            WindowGeometry.titlebarHeight(of: window),
+            DesignTokens.Layout.windowTitlebarHeight,
+            "the grid subtracts a title bar; this is the one the system adds"
+        )
+        XCTAssertEqual(
+            window.frame.size,
+            DesignTokens.Layout.windowSize,
+            "a content view laid out to the grid must compose to §3's 520 × 414 frame"
+        )
+    }
+
+    /// The `All events ☰` slot is reserved from stage 2 so stage 3 wiring it up does
+    /// not shove the refresh icon left and reflow the strip's trailing edge.
+    func testTheStripReservesTheAllEventsSlot() {
+        typealias Row = DesignTokens.Layout.WindowRow
+
+        XCTAssertEqual(Row.stripAllEventsWidth, 106)
+        XCTAssertEqual(Row.stripControlGap, 12)
+        XCTAssertEqual(Row.stripHorizontalPadding, 16)
     }
 
     /// The dropdown's rhythm is read off the mockups rather than the spec's row

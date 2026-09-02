@@ -87,7 +87,7 @@ bundled.
 
 | Surface | Size | Radius |
 |---|---|---|
-| Timer window | 520 × 414 pt, fixed | 12 |
+| Timer window | 520 × 414 pt default, resizable | 12 |
 | Dropdown sheet | 272 pt wide | 12 |
 | Menu bar status item | 28 pt tall (system) | 5 on the countdown pill |
 | Widget · small | 170 × 170 pt | 22 |
@@ -108,6 +108,43 @@ Why the clock and buttons never move between states:
 The reserved event-title row and the fixed-height swap slot and strip are the whole
 mechanism behind "without the layout jumping" and "the quick durations disappear
 once a session starts" — the rows are always allocated, only their contents change.
+
+### 3.2 Resizing
+
+520 × 414 pt is the window's **default and minimum**, not its only size. The grid
+above survives resizing because it stretches in exactly one place:
+
+- Every row keeps its stated height. The event-title row stays reserved, the swap
+  slot stays 62 pt, the strip stays pinned to the bottom edge at 68 pt.
+- **Extra height goes to flexible space above and below the numerals block**, which
+  stays optically centred. Nothing in the grid grows.
+- Extra width widens the rows' content — the progress rule, the strip, the button
+  row — while the numerals stay centred at their specified size.
+
+The numerals do **not** scale with the window. They are 92 pt because that is the
+size the design asks to be readable across a room; making them track the frame
+would turn a deliberate value into an accident of how the user last dragged a
+corner.
+
+**The colon sits on the window's centre line**, not the numerals block. The two
+halves are symmetric columns of equal width — minutes trailing-aligned, seconds
+leading-aligned — so typing a third minute digit widens the left column without
+sliding the clock sideways. Centring the *block* instead would shift the colon
+28 pt right at `295:00`, which is the same class of jump §3.1 exists to prevent.
+
+### 3.3 Empty-calendar copy
+
+The two surfaces say different things, deliberately:
+
+| Surface | Copy |
+|---|---|
+| Dropdown | `Nothing on your calendar today` |
+| Window strip | `Nothing else on your calendar today` |
+
+The dropdown states a fact about the day. The window strip describes *what is
+next* — and reaches its empty state both when the day is genuinely empty and when
+every remaining event has been dismissed, so "nothing else" is the wording that is
+true in both cases.
 
 ---
 

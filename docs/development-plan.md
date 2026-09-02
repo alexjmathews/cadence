@@ -122,6 +122,31 @@ growing the sheet past the mockup's height by one row. Launch-at-login is *not*
 surfaced there — it is a set-once preference, not a per-session action, and
 `LoginItemManager` stays unreferenced until Stage 5 gives it a home.
 
+**D9 — The editable numerals are two numeric fields, not one text field.**
+Minutes and seconds are separate inputs with the colon drawn as immovable chrome
+between them, so it cannot be deleted, duplicated, or typed into. Each field
+accepts **digits only** — non-numeric keystrokes are refused at input rather than
+validated afterwards, so there is no such thing as a malformed entry to reject.
+`Tab` and `Shift-Tab` move between the two fields, and `Return` starts the session
+from either. This replaces a single free-text field parsed against a grammar: a
+grammar has to define what `1:2:3::` means, whereas two numeric fields make most of
+those states unreachable. Seconds are still clamped to `0…59`; minutes carry any
+larger value.
+
+Refusal has to happen where AppKit asks *before* the field editor adopts text, not
+in a SwiftUI `Binding` setter. A setter that declines to write does not revert an
+`NSTextField` — it keeps its own live editing text, so the refused keystroke stays
+on screen while the committed plan silently diverges from it. The hook that is
+actually consulted is a `Formatter`'s `isPartialStringValid`, which covers typing,
+paste, and IME input alike; the delegate callbacks that look like the right place
+(`control(_:textView:shouldChangeTextIn:replacementString:)`) are not part of
+`NSControlTextEditingDelegate` and are never called.
+
+Committing per keystroke is likewise wrong: it walks `plannedDuration` through
+every intermediate value, so clearing the minutes field to retype it briefly
+commits a 9-second plan to the App Group and reloads every widget timeline.
+**Commit on blur or `Return`**, and never commit an empty field.
+
 ---
 
 ## 3. Stages
@@ -209,12 +234,15 @@ row.
 
 ### Stage 2 — Timer window
 
-- The fixed 520 × 414 pt window on the row grid from the visual spec — reserved
+- The 520 × 414 pt window on the row grid from the visual spec — reserved
   event-title row, 96 pt numerals, the 62 pt swap slot, buttons, and the 68 pt
-  strip holding its height. Getting the grid right here is what makes stages 3–4
-  free of layout jump.
-- Editable numerals: in-place duration entry, `idle` only, with validation and
-  commit-to-`plannedDuration`.
+  strip holding its height. **Resizable**, with 520 × 414 as the default and
+  minimum; per visual spec §3.2 the rows keep their heights and only the space
+  around the numerals stretches. Getting the grid right here is what makes stages
+  3–4 free of layout jump.
+- Editable numerals: two digits-only fields either side of a fixed colon, `idle`
+  only, `Tab` / `Shift-Tab` between them, `Return` to start, committing to
+  `plannedDuration` (D9).
 - Quick durations and buffer chips; the chips write `preferences.endEarlyBuffer`
   and show the active value highlighted.
 - Running: progress rule, `started · ends` status line. Complete: mint shell
@@ -223,9 +251,11 @@ row.
   real from day one.
 
 **Exit criteria** — every window story except the calendar strip's; presets and
-`Timer until…` are absent while running or complete; the buffer round-trips through
-relaunch; matches `timer-window--idle-with-event` (minus the strip's event),
-`--running-no-event`, `--complete`.
+`Timer until…` are absent while running or complete; numerals are not editable
+outside `idle`; the buffer round-trips through relaunch; the grid holds its
+geometry at the minimum size and when the window is dragged larger; matches
+`timer-window--idle-with-event` (minus the strip's event), `--running-no-event`,
+`--complete`.
 
 ### Stage 3 — Calendar
 
@@ -320,7 +350,7 @@ and no surface disagreeing with another.
 | A widget extension may not be permitted to post local notifications | 4–5 | Completion scheduling belongs to the app (D3) and is only *cancelled* by intents; verify whether an intent-initiated start can schedule, and if not, have the app reconcile pending requests when it next observes the container |
 | Recurring-event identifiers unstable across sync/edits | 3 | Composite occurrence key, day-scoped dismissals, and re-resolution at start time — all three already in the data model doc; a stale key fails as "no suggestion", never as a wrong timer |
 | Two writers race on `sessionState` | 1–4 | Pure transitions in `Shared/` plus container observation (D2); contention only on deliberate user action |
-| Fixed 520 × 414 pt window against dynamic text sizes | 2 | Row grid with reserved heights; truncate event titles rather than reflow |
+| Resizable window against a grid built to hold its geometry | 2 | Rows keep their heights; only the space around the numerals stretches (visual spec §3.2). Truncate event titles rather than reflow, and verify the grid at the minimum size and dragged large |
 | IBM Plex Mono licensing / bundling | 2 | Ship on SF Mono per the visual spec's substitution clause; bundle only if it's worth the target size |
 | App Group `UserDefaults` writes silently dropped when the container is unavailable | 0 | Store returns a result and logs; a failed write must never leave a live in-memory state that disagrees with disk |
 
