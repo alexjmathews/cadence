@@ -6,8 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Start as a menu-bar-only accessory: no Dock icon, no window at login.
         NSApp.setActivationPolicy(.accessory)
 
+        // Authorization is requested at first schedule, not at launch (D3).
         UNUserNotificationCenter.current().delegate = self
-        NotificationManager.shared.requestAuthorization()
 
         // When the main window closes, drop back to accessory so the app keeps
         // running quietly in the menu bar without a Dock icon.
@@ -35,17 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// The command surface is rebuilt over the real transitions in a later stage;
+    /// the scheme is registered now so the handler has somewhere to grow.
     private func handle(_ url: URL) {
-        switch url.host {
-        case "notify":
-            let message = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?
-                .first { $0.name == "message" }?
-                .value
-            NotificationService.send(body: message ?? "This is a Cadence notification.")
-        default:
-            break
-        }
+        NSLog("Cadence: no handler for cadence://\(url.host() ?? "")")
     }
 
     // Show notifications even when Cadence is the foreground app.

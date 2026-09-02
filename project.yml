@@ -36,6 +36,23 @@ targets:
       - target: CadenceWidget
         embed: true
 
+  CadenceTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - CadenceTests
+    dependencies:
+      - target: Cadence
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: com.alexmathews.cadence.tests
+        # Hosted in the app so the suite runs inside a process that actually holds
+        # the App Group entitlement — the round-trips go through the real
+        # container, not a lookalike suite in ~/Library/Preferences.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Cadence.app/Contents/MacOS/Cadence"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
   CadenceWidget:
     type: app-extension
     platform: macOS
@@ -47,3 +64,25 @@ targets:
         INFOPLIST_FILE: CadenceWidget/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.alexmathews.cadence.widget
         CODE_SIGN_ENTITLEMENTS: CadenceWidget/CadenceWidget.entitlements
+
+schemes:
+  Cadence:
+    build:
+      targets:
+        Cadence: all
+        CadenceTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - CadenceTests
+
+  CadenceTests:
+    build:
+      targets:
+        CadenceTests: [test]
+    test:
+      config: Debug
+      targets:
+        - CadenceTests

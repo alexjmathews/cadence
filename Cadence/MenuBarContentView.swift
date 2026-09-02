@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Placeholder menu holding the lifecycle affordances while the product surfaces
+/// are built. The dropdown proper — numerals, presets, transport — replaces this.
 struct MenuBarContentView: View {
     @ObservedObject var loginItem: LoginItemManager
     @Environment(\.openWindow) private var openWindow
@@ -11,21 +13,6 @@ struct MenuBarContentView: View {
         .keyboardShortcut("o")
 
         Divider()
-
-        Button("Send Test Notification") {
-            NotificationManager.shared.sendTestNotification()
-        }
-
-        Button("Start 25:00 Focus (Demo)") {
-            SharedStore.save(CadenceSessionState(
-                phase: .focus,
-                endDate: Date().addingTimeInterval(25 * 60)
-            ))
-        }
-
-        Button("Clear Session (Demo)") {
-            SharedStore.save(.placeholder)
-        }
 
         Toggle("Launch at Login", isOn: Binding(
             get: { loginItem.isEnabled },

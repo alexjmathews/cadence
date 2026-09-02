@@ -70,8 +70,12 @@ own process rather than round-tripping through the app, so the controls work wit
 the app quit and never foreground it. The consequence is two writers, which forces
 two properties on the code:
 
-- every transition is a **pure function** `(SessionState, Preferences, Date) →
-  SessionState` in `Shared/`, so both processes compute identically;
+- every transition is a **pure function** of the current state, the arguments the
+  caller has already resolved, and an injected `now` — `(SessionState, …, Date) →
+  SessionState` in `Shared/` — so both processes compute identically. Preferences
+  do not appear in the signature: the buffer is materialised into a duration by the
+  caller before `start` is invoked (P4), which keeps the transitions ignorant of
+  where their numbers came from;
 - the app **observes** the container rather than trusting its in-memory copy —
   `UserDefaults.didChangeNotification` on the suite plus a re-read on
   `NSApplication.didBecomeActiveNotification` and on wake.
@@ -130,9 +134,16 @@ declaration in `Info.plist` and the scheme handler stay. `LoginItemManager` stay
 - `Shared/Preferences.swift` — `endEarlyBuffer`, `lastUsedDuration`.
 - `Shared/SessionTransitions.swift` — the seven transitions as pure functions with
   their guards (`extend` only from `complete`; `start` never from `running` /
-  `paused`; duration selection only in `idle`). Guard violations are no-ops that
-  return the input state, not crashes — a stale widget can legitimately ask for an
-  illegal transition.
+  `paused`; duration selection only in `idle`). Guard violations are no-ops, not
+  crashes — a stale widget can legitimately ask for an illegal transition.
+
+  Precisely: every transition reconciles against `now` first (D4), then guards. So
+  a rejected transition returns the *reconciled* state, which equals the input
+  except when the deadline has silently passed — a stale widget's `pause` on an
+  elapsed session returns a **completed** state, not a running one. That is
+  deliberate: the session already reads as complete on every surface, so persisting
+  the completion is more honest than handing back a `running` state that no
+  surface would agree with.
 - `Shared/DerivedValues.swift` — `effectiveStatus`, `remaining`, `focused`,
   `progress`, `displayName`, `span`, `summaryLine`, `clockTargets`. Calendar-
   dependent derivations (`suggestedEvent`, `canStartMeetingTimer`) land in stage 3.

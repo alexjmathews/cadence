@@ -6,23 +6,7 @@
   "icon": "command-icon.png",
   "author": "alexmathews",
   "license": "MIT",
-  "commands": [
-    {
-      "name": "send-notification",
-      "title": "Send Cadence Notification",
-      "subtitle": "Cadence",
-      "description": "Sends a local notification via Cadence.",
-      "mode": "no-view",
-      "arguments": [
-        {
-          "name": "message",
-          "type": "text",
-          "placeholder": "Message (optional)",
-          "required": false
-        }
-      ]
-    }
-  ],
+  "commands": [],
   "dependencies": {
     "@raycast/api": "^1.80.0"
   },
