@@ -14,7 +14,10 @@ struct CadenceApp: App {
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
 
-        MenuBarExtra("Cadence", systemImage: "timer") {
+        // The ink mark from the icon handoff. The imageset carries template
+        // rendering intent, so AppKit handles light/dark menu bars for us —
+        // don't tint it here.
+        MenuBarExtra("Cadence", image: "CadenceStatusIdle") {
             MenuBarContentView(loginItem: loginItem)
         }
         .menuBarExtraStyle(.menu)
