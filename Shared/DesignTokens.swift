@@ -53,6 +53,20 @@ enum DesignTokens {
         /// `widget-small--running` and `--complete` mockups measure it at white 12%,
         /// the same weight the strip's action carries for the same reason.
         static let fillWidgetSecondary = Color(.sRGB, white: 1, opacity: 0.12)
+        /// The widget transport's primary control **in vibrant rendering mode**, where
+        /// the accent fill it normally carries is not available.
+        ///
+        /// macOS renders desktop widgets by flattening them to a wallpaper-keyed
+        /// material, mapping content by *luminance* and discarding hue. `Accent.base`
+        /// under `TextColor.onAccent` has ample colour contrast and almost none of the
+        /// luminance separation that survives the flattening, so the primary button
+        /// renders as a blank slab with its own label invisible inside it. Neutral
+        /// translucent white is what the material is built to carry: it flattens to a
+        /// lighter panel, and a full-opacity label stays legible on it.
+        ///
+        /// Heavier than `fillWidgetSecondary` so the transport keeps its hierarchy
+        /// once both controls are neutral and colour can no longer distinguish them.
+        static let fillVibrantPrimary = Color(.sRGB, white: 1, opacity: 0.26)
         /// The medium's context pane and its suggestion rows over the mint shell.
         /// §1.1 names one `Fill / subtle` for both shells; the `widget-medium--complete`
         /// mockups tint the complete pane with the completion accent rather than

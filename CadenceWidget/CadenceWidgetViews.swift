@@ -20,42 +20,82 @@ private typealias Grid = DesignTokens.Layout.Widget
 /// The state-driven shell colours. The whole card recolors on completion, as every
 /// other surface does, and it is derived from `effectiveStatus` rather than the
 /// stored value (§5's implementation note, D4).
+///
+/// **Vibrant rendering mode discards all of it.** macOS draws desktop widgets as a
+/// wallpaper-keyed material, mapping content by luminance and throwing hue away, so
+/// none of Cadence's colour language survives there: blue running, mint complete and
+/// the mint shell recolor all flatten to the same tone. Every accent below therefore
+/// collapses to a luminance-ordered neutral in that mode, and the transport drops its
+/// painted accent fill for `Surface.fillVibrantPrimary` — otherwise the primary
+/// button renders as a blank slab with its own label invisible inside it.
+///
+/// The branch lives here rather than at the call sites so there is still one place
+/// that decides what colour anything is (D5). State that colour used to carry is left
+/// to the text: the pane's `IN SESSION` / `SESSION COMPLETE` label and the tile's
+/// caption both say it in words.
 private struct WidgetShell {
     let status: SessionStatus
+    /// Set by the system per placement — `.vibrant` on the desktop, `.fullColor` in
+    /// Notification Center. Read-only: there is no API to opt out of it.
+    let mode: WidgetRenderingMode
+
+    init(status: SessionStatus, mode: WidgetRenderingMode = .fullColor) {
+        self.status = status
+        self.mode = mode
+    }
 
     var isComplete: Bool { status == .complete }
+
+    private var isVibrant: Bool { mode == .vibrant }
 
     var background: Color {
         isComplete ? DesignTokens.Surface.complete : DesignTokens.Surface.base
     }
 
+    /// Marks that are accent-coloured for meaning: the status dot and the progress
+    /// fill. In vibrant they become the brightest neutral available, because a fill
+    /// the eye cannot separate from its track is not progress.
     var accent: Color {
-        isComplete ? DesignTokens.Accent.complete : DesignTokens.Accent.base
+        if isVibrant { return DesignTokens.TextColor.primary }
+        return isComplete ? DesignTokens.Accent.complete : DesignTokens.Accent.base
+    }
+
+    /// The transport's primary background. Not `accent`: see the type's note.
+    var primaryFill: Color {
+        if isVibrant { return DesignTokens.Surface.fillVibrantPrimary }
+        return isComplete ? DesignTokens.Accent.complete : DesignTokens.Accent.base
     }
 
     var numerals: Color {
-        isComplete ? DesignTokens.Accent.completeText : DesignTokens.TextColor.primary
+        if isVibrant { return DesignTokens.TextColor.primary }
+        return isComplete ? DesignTokens.Accent.completeText : DesignTokens.TextColor.primary
     }
 
     var caption: Color {
-        isComplete ? DesignTokens.Accent.completeCaption : DesignTokens.TextColor.secondary
+        if isVibrant { return DesignTokens.TextColor.secondary }
+        return isComplete ? DesignTokens.Accent.completeCaption : DesignTokens.TextColor.secondary
     }
 
-    /// The transport's primary label, which sits on the accent in both shells.
+    /// The transport's primary label. On the accent in both shells; on
+    /// `fillVibrantPrimary` in vibrant, where it needs the full luminance it can get.
     var onAccent: Color {
-        isComplete ? DesignTokens.TextColor.onComplete : DesignTokens.TextColor.onAccent
+        if isVibrant { return DesignTokens.TextColor.primary }
+        return isComplete ? DesignTokens.TextColor.onComplete : DesignTokens.TextColor.onAccent
     }
 
     var paneFill: Color {
-        isComplete ? DesignTokens.Surface.fillComplete : DesignTokens.Surface.fillSubtle
+        if isVibrant { return DesignTokens.Surface.fillSubtle }
+        return isComplete ? DesignTokens.Surface.fillComplete : DesignTokens.Surface.fillSubtle
     }
 
     var paneBorder: Color {
-        isComplete ? DesignTokens.Surface.hairlineComplete : DesignTokens.Surface.hairline
+        if isVibrant { return DesignTokens.Surface.hairline }
+        return isComplete ? DesignTokens.Surface.hairlineComplete : DesignTokens.Surface.hairline
     }
 
     var paneLabel: Color {
-        isComplete ? DesignTokens.Accent.complete : DesignTokens.Accent.text
+        if isVibrant { return DesignTokens.TextColor.primary }
+        return isComplete ? DesignTokens.Accent.complete : DesignTokens.Accent.text
     }
 }
 
@@ -69,7 +109,9 @@ struct WidgetTileView: View {
     /// True in the small card, whose transport has the whole column to fill.
     var fillsTransportWidth = false
 
-    private var shell: WidgetShell { WidgetShell(status: tile.status) }
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    private var shell: WidgetShell { WidgetShell(status: tile.status, mode: renderingMode) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -220,7 +262,7 @@ private struct WidgetPrimaryButton: View {
                 .padding(.horizontal, fillsWidth ? 0 : Grid.primaryButtonPadding)
                 .frame(maxWidth: fillsWidth ? .infinity : nil, maxHeight: .infinity)
                 .background(
-                    shell.accent,
+                    shell.primaryFill,
                     in: .rect(cornerRadius: DesignTokens.Component.primaryButtonRadius)
                 )
         }
@@ -283,7 +325,9 @@ struct MediumWidgetView: View {
     let tile: WidgetTile
     let pane: WidgetPane
 
-    private var shell: WidgetShell { WidgetShell(status: tile.status) }
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    private var shell: WidgetShell { WidgetShell(status: tile.status, mode: renderingMode) }
 
     var body: some View {
         HStack(alignment: .top, spacing: Grid.columnGap) {
