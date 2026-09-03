@@ -47,6 +47,25 @@ enum DesignTokens {
         /// mockups — heavier than `fillSubtle`, which is what lifts the strip's one
         /// action clear of a footer that is already a wash over the shell.
         static let fillStripAction = Color(.sRGB, white: 1, opacity: 0.12)
+        /// The widget transport's secondary control — `↺`, `+5`. §1.1 gives
+        /// secondary buttons `fillSubtle`; at 44 pt over a card that is already dark
+        /// that reads as an absence rather than a control, and the
+        /// `widget-small--running` and `--complete` mockups measure it at white 12%,
+        /// the same weight the strip's action carries for the same reason.
+        static let fillWidgetSecondary = Color(.sRGB, white: 1, opacity: 0.12)
+        /// The medium's context pane and its suggestion rows over the mint shell.
+        /// §1.1 names one `Fill / subtle` for both shells; the `widget-medium--complete`
+        /// mockups tint the complete pane with the completion accent rather than
+        /// white, which is what keeps it from reading as a grey patch on a green
+        /// card.
+        static let fillComplete = Color(hex: 0x2FE0A6, opacity: 0.12)
+        /// The same pane's border, on the same argument as `fillComplete`.
+        static let hairlineComplete = Color(hex: 0x2FE0A6, opacity: 0.28)
+        /// The reserved colour bar in a widget suggestion row that has no calendar
+        /// colour to inherit — a duration or a clock target. Dimmer than any
+        /// `TextColor` level, because it is a mark holding a column open rather than
+        /// a thing to read.
+        static let widgetRowBar = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.25)
     }
 
     enum Accent {
@@ -321,6 +340,85 @@ enum DesignTokens {
             static let stripActionHeight: CGFloat = 28
         }
 
+        /// The widget families' internal grid. The visual specification gives the
+        /// two card sizes and their radius (§3) and the type and component values
+        /// the card is built from (§2, §4), but not the rhythm inside it, so — as
+        /// with `Dropdown` and `WindowRow` above — these are read off the
+        /// `widget-small--*` and `widget-medium--*` mockups at 2× and declared here
+        /// rather than inlined, per §5.
+        ///
+        /// The tile is one view shared by both families: the same status line,
+        /// numerals, rule, caption and transport, laid out identically whether it
+        /// occupies all 170 pt of a small card or the leading 151 pt of a medium
+        /// one. The medium mockups draw that stack about 6 pt higher than the small
+        /// ones do for no reason the specification names, and two tiles that differ
+        /// by six points is a difference the user would see when both widgets are on
+        /// the same desktop. One tile, measured off the small mockups — which sum to
+        /// the card's 170 pt exactly — is the reading that keeps the surfaces
+        /// agreeing with each other.
+        enum Widget {
+            /// The card's own inset, on all four edges.
+            static let padding: CGFloat = 16
+            /// From the card's leading text column to the medium's context pane.
+            static let columnGap: CGFloat = 19
+
+            // The tile, top to bottom. These sum with `padding` to exactly 170.
+            /// `● ends 2:27 PM`.
+            static let statusRowHeight: CGFloat = 16
+            static let statusDotSize: CGFloat = 7
+            static let statusDotGap: CGFloat = 7
+            /// Holds the 44 pt numerals on their own baseline.
+            static let numeralsRowHeight: CGFloat = 53
+            static let numeralsToRule: CGFloat = 5
+            static let ruleToCaption: CGFloat = 9
+            /// `Ready` · the session's name · `Complete · 25 min`.
+            static let captionRowHeight: CGFloat = 16
+            static let captionToButtons: CGFloat = 4
+
+            /// Above `Component.widgetTapTarget`, which is the floor rather than the
+            /// size.
+            static let buttonHeight: CGFloat = 31
+            static let buttonGap: CGFloat = 6
+            /// The transport's second control — `↺` and `+5` — held to one width so
+            /// the primary beside it does not resize with its label.
+            static let secondaryButtonWidth: CGFloat = 44
+            /// §4's primary padding is the window's; a 32 pt inset on a 151 pt
+            /// column leaves no room for a label. The mockups measure the widget's
+            /// primary at this, where it has room to hug rather than to fill.
+            static let primaryButtonPadding: CGFloat = 26
+
+            // The medium's context pane: `IN SESSION` / `SESSION COMPLETE` over the
+            // session's name and when it started.
+            /// The tile's column. The pane takes what is left of the card less
+            /// `columnGap`, which is 162 — the width the mockups measure it at.
+            static let tileWidth: CGFloat = 151
+            /// Both pane forms start below the card's `padding`, not at it: the
+            /// mockups drop the pane clear of the tile's status line so the two
+            /// columns read as a clock and a note about it rather than as two lists.
+            static let paneTopInset: CGFloat = 14
+            static let paneHeight: CGFloat = 79
+            static let paneRadius: CGFloat = 10
+            static let panePadding: CGFloat = 13
+            static let paneLabelToTitle: CGFloat = 9
+            static let paneTitleToMeta: CGFloat = 6
+            static let paneBorderWidth: CGFloat = 1
+
+            // The medium's suggestion rows, drawn in place of the pane while idle.
+            static let suggestionsTopInset: CGFloat = 7
+            /// `Component.widgetTapTarget` exactly. The mockups draw 28, which §4's
+            /// 30 pt floor overrides — a row that is a single App Intent is a tap
+            /// target like any other.
+            static let suggestionRowHeight: CGFloat = DesignTokens.Component.widgetTapTarget
+            static let suggestionRowGap: CGFloat = 5
+            static let suggestionRowPadding: CGFloat = 8
+            /// The colour bar leading every row, reserved even for a duration row so
+            /// a meeting row among them shifts no title sideways.
+            static let suggestionBarHeight: CGFloat = 16
+            static let suggestionBarGap: CGFloat = 8
+            /// At most three rows fit the card; the derivation offers no more.
+            static let suggestionRowLimit = 3
+        }
+
         /// The day list drawn over the timer by `☰` (the
         /// `timer-window--idle-day-list-expanded` mockup). The visual specification's
         /// row grid (§3.1) covers the timer's rows only, so these are read off that
@@ -414,6 +512,15 @@ extension Color {
             blue: Double(hex & 0xFF) / 255,
             opacity: opacity
         )
+    }
+
+    /// `RRGGBB`, as the calendar snapshot stores a source calendar's color. Here
+    /// rather than beside the calendar views because the widget extension draws the
+    /// same bars from the same record.
+    init?(hexString: String) {
+        let digits = hexString.hasPrefix("#") ? String(hexString.dropFirst()) : hexString
+        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+        self.init(hex: value)
     }
 
     /// The `rgba(235,235,245,…)` label white the text levels are built from.

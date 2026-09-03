@@ -84,11 +84,42 @@ Writes are read-modify-write on a single small record, and the two processes onl
 ever contend on deliberate user action, so `cfprefsd` mediation is sufficient — no
 lock file, no coordination protocol.
 
-**D3 — Completion is a scheduled notification, never a timer callback.**
+**D3 — Completion is a scheduled notification, never a timer callback. Each writer
+owns its own alarm.**
 At `start` / `resume` / `extend`, schedule one `UNNotificationRequest` with a
 trigger derived from `endsAt`, under a stable identifier. `pause` and `reset`
 cancel it. This is what makes the alarm survive sleep, app quit, and a throttled
 process. Nothing about completion depends on a process being awake to count.
+
+**Amended after Stage 4 measured it.** This decision originally said scheduling
+belonged to the app and intents would only *cancel*, with the app reconciling
+pending requests when it next observed the container. That is not implementable on
+macOS 26, and the measurements are unambiguous: the app and the widget extension
+get **two separate notification stores**. An extension *can* schedule — it inherits
+the containing app's authorization without prompting, `add()` succeeds, and the
+request fires even after the extension process is gone — but the app cannot
+enumerate or cancel what the extension scheduled, and the extension cannot cancel
+what the app scheduled. Each side sees only its own bucket.
+
+So the original fallback fails in both directions. A widget `pause` could not cancel
+the app's alarm, leaving it armed to fire against a stopped session — worse than the
+missing alarm the risk row feared. And "the app reconciles later" does not cover the
+case it existed for: with the app quit for the whole session, which D2 makes the
+ordinary widget case, nobody is there to schedule and nobody is there to reconcile
+before the deadline.
+
+The shape that works: **whichever process performs the transition schedules and
+cancels its own alarm**, through a scheduler in `Shared/` that takes the store as an
+argument so both processes run identical code. Duplicate alarms — one per bucket for
+the same session — are then possible when both processes act on one session, and are
+handled at delivery through the existing `UNUserNotificationCenterDelegate` rather
+than by trying to keep the two stores in sync.
+
+One trap, recorded because it cost Stage 4 three attempts: `UNUserNotificationCenter`
+`.current()` throws `bundleProxyForCurrentProcess is nil` for any process whose
+bundle LaunchServices does not know, and `lsregister` on a scratch path is not
+enough. That is an artefact of bundle location, not evidence about extensions — a
+proxy binary run from a scratch directory cannot answer this question at all.
 
 **D4 — Every surface derives status; none trusts the stored value.**
 `effectiveStatus(now)` is the only status a view reads. A session whose deadline
@@ -146,6 +177,26 @@ Committing per keystroke is likewise wrong: it walks `plannedDuration` through
 every intermediate value, so clearing the minutes field to retype it briefly
 commits a 9-second plan to the App Group and reloads every widget timeline.
 **Commit on blur or `Return`**, and never commit an empty field.
+
+**D10 — The clock is never compressed, ellipsed, or truncated. Everything else
+yields to it.**
+A 60-minute meeting-linked session rendered `60:...` in the dropdown: the numerals
+and the session title share a row, and the title won. That is backwards — the
+clock is the one thing every surface exists to show, and a session named after a
+long meeting title is exactly when the remaining time matters.
+
+So: the numerals take layout priority over any label beside them, and the title
+truncates instead. Since `ClockFormatter` carries minutes past 59 rather than
+rolling over to hours (a deliberate Stage 2 decision — `1:05:00` does not fit the
+numeral treatment), the widest legitimate clock is **three minute digits plus two
+seconds**: `600:00`.
+
+Surfaces that can widen, do: the dropdown sheet and the menu bar pill are sized to
+fit `600:00` outright. The widget families cannot — 170 × 170 and 364 × 170 are
+fixed by WidgetKit — so there the numerals scale down to fit, which is acceptable
+because the whole clock stays on screen and legible. **What is never acceptable is
+an ellipsis, a truncation, or a clock that leaves the surface.** Scaling preserves
+the reading; the other three destroy it.
 
 ---
 
@@ -310,10 +361,24 @@ three small mockups match.
 
 ### Stage 5 — Hardening & release candidate
 
+- **Clock legibility on the menu bar surfaces (D10).** The dropdown renders
+  `60:...` today for a session named after a long meeting: widen the sheet and the
+  pill to fit `600:00`, give the numerals layout priority over the adjoining
+  label, and truncate the title instead. Both widget families were verified in
+  stage 4 to fit `600:00` by scaling, so they need no change; the window's 92 pt
+  numerals still want one check against three digits.
 - Completion notifications on the D3 model, with the authorization request moved
   out of launch and into first schedule.
 - Sleep / wake, clock-change, and day-rollover reconciliation exercised on real
   hardware, not just in tests.
+- **A comment that lies.** `SessionController.tick()` claims to bank the completion
+  once, and does not: `SharedStore.loadSessionState` already reconciles on read, so
+  the `next != base` guard is always false for a pure reconciliation and the stored
+  record keeps `status: running` with an elapsed `endsAt` and no `completedAt`.
+  Harmless — reconciliation is a deterministic function of the stored record, so
+  every reader derives the identical completed state — but either the code or the
+  comment has to change, and a persisted `complete` is the honest one now that D3
+  gives each writer an alarm to cancel.
 - `cadence://` and the Raycast extension rebuilt against the real transitions —
   start with a duration, pause, reset, extend — replacing the notify demo.
 - `CadenceShortcuts` reinstated over the real intents.
@@ -347,7 +412,7 @@ and no surface disagreeing with another.
 | Risk | Stage | Mitigation |
 |---|---|---|
 | `MenuBarExtra` label won't redraw per second even with a ticker | 1 | Verify empirically in the first hours of stage 1; fall back to an `NSStatusItem` managed by `AppDelegate`, which is fully under our control |
-| A widget extension may not be permitted to post local notifications | 4–5 | Completion scheduling belongs to the app (D3) and is only *cancelled* by intents; verify whether an intent-initiated start can schedule, and if not, have the app reconcile pending requests when it next observes the container |
+| A widget extension may not be permitted to post local notifications | 4–5 | **Resolved in stage 4: it may.** An extension inherits the app's authorization without prompting, `add()` succeeds, and the alarm fires after the extension is gone. The real problem is the opposite one — app and extension get separate notification stores, so neither can cancel the other's alarm. D3 is amended accordingly: each writer owns its own alarm, and duplicates are handled at delivery |
 | Recurring-event identifiers unstable across sync/edits | 3 | Composite occurrence key, day-scoped dismissals, and re-resolution at start time — all three already in the data model doc; a stale key fails as "no suggestion", never as a wrong timer |
 | Two writers race on `sessionState` | 1–4 | Pure transitions in `Shared/` plus container observation (D2); contention only on deliberate user action |
 | Resizable window against a grid built to hold its geometry | 2 | Rows keep their heights; only the space around the numerals stretches (visual spec §3.2). Truncate event titles rather than reflow, and verify the grid at the minimum size and dragged large |

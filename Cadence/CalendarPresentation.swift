@@ -344,12 +344,3 @@ enum CalendarPresentation {
         Int((interval / 60).rounded())
     }
 }
-
-extension Color {
-    /// `RRGGBB` as the snapshot stores a source calendar's color.
-    init?(hexString: String) {
-        let digits = hexString.hasPrefix("#") ? String(hexString.dropFirst()) : hexString
-        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
-        self.init(hex: value)
-    }
-}

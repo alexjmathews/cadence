@@ -41,12 +41,24 @@ targets:
     platform: macOS
     sources:
       - CadenceTests
+      # The widget's views, compiled into the test bundle as well as into the
+      # extension. `WidgetGeometryTests` renders them at the real family sizes and
+      # measures where the ink lands, which is the only way to catch a layout fault
+      # — the complete card's transport once overran its column and pulled the whole
+      # tile 16 pt off the leading edge, and every presentation test still passed.
+      - CadenceWidget/CadenceWidgetViews.swift
+      - CadenceWidget/CadenceIntents.swift
     dependencies:
       - target: Cadence
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
         PRODUCT_BUNDLE_IDENTIFIER: com.alexmathews.cadence.tests
+        # The widget's view files find `DesignTokens` and the rest of `Shared/` in
+        # their own module when they compile into the extension, and in the host app's
+        # when they compile in here. This is the only difference between the two, and
+        # it is one conditional import at the top of each file.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CADENCE_TESTS"
         # Hosted in the app so the suite runs inside a process that actually holds
         # the App Group entitlement — the round-trips go through the real
         # container, not a lookalike suite in ~/Library/Preferences.
