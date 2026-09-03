@@ -63,6 +63,33 @@ final class SessionController {
         apply { SessionTransitions.startAnother($0, duration: $0.plannedDuration, now: $1) }
     }
 
+    /// A meeting-linked start, from the window strip, the day list, or the dropdown's
+    /// `To <event>` row — all three call this, which is what makes them produce
+    /// identical state.
+    ///
+    /// The deadline arrives already materialised (P4): `CalendarController` re-resolved
+    /// the occurrence key against the live event store and subtracted the saved buffer
+    /// before this was called, so the session copies a title and a duration and keeps
+    /// no pointer to the event. `linkedEventKey` is provenance only — nothing reads it
+    /// back to retime anything.
+    ///
+    /// The duration is computed against the transition's own `now` rather than passed
+    /// in, so the session ends at the buffered instant regardless of how long the press
+    /// took to reach the container.
+    func startMeeting(_ meeting: MeetingStart) {
+        apply { state, now in
+            let duration = meeting.endsAt.timeIntervalSince(now)
+            guard duration > 0 else { return state }
+            return SessionTransitions.start(
+                state,
+                duration: duration,
+                title: meeting.title,
+                linkedEventKey: meeting.key,
+                now: now
+            )
+        }
+    }
+
     func pause() {
         apply(SessionTransitions.pause)
     }

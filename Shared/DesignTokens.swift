@@ -41,6 +41,12 @@ enum DesignTokens {
         /// accent at the same weight `fillAccentSelected` gives the buffer row's
         /// selected chip is the relationship the window already uses for "selected".
         static let numeralSelection = Color(hex: 0x2F6BFF, opacity: 0.30)
+        /// The fill behind the strip's `Timer until 3:30` action and the day list's
+        /// `Back to timer`. §1.1 names no fill for either; both measure at white 12%
+        /// in the `timer-window--idle-with-event` and `--idle-day-list-expanded`
+        /// mockups — heavier than `fillSubtle`, which is what lifts the strip's one
+        /// action clear of a footer that is already a wash over the shell.
+        static let fillStripAction = Color(.sRGB, white: 1, opacity: 0.12)
     }
 
     enum Accent {
@@ -59,6 +65,11 @@ enum DesignTokens {
         static let completeCaption = Color(hex: 0x6FEFC6, opacity: 0.72)
         /// Calendar event color bar and event-named sessions.
         static let event = Color(hex: 0xFF8A3D)
+        /// The hairline around the strip's `Timer until 3:30`. §1.1 gives hairlines
+        /// one white value; the `timer-window--idle-with-event` mockup draws this one
+        /// in the accent, which is what marks the strip's single start action out from
+        /// the two icon buttons beside it.
+        static let stripAction = Color(hex: 0x2F6BFF, opacity: 0.55)
 
         /// Calendar rows inherit their source calendar's color; these are the ones
         /// the day list is composed against.
@@ -191,6 +202,10 @@ enum DesignTokens {
             /// meeting row can appear among them without shifting any title
             /// sideways.
             static let rowBarGap: CGFloat = 7
+            /// The colour bar in a meeting row, measured off `menu-bar-dropdown--idle`
+            /// at 2×. Shorter than the row, so it reads as a mark beside the title
+            /// rather than a divider.
+            static let rowBarHeight: CGFloat = 13
             static let rowsBottomPadding: CGFloat = 6
             /// `Open Cadence ⌘O`.
             static let footerHeight: CGFloat = 40
@@ -296,6 +311,40 @@ enum DesignTokens {
             /// trailing edge.
             static let stripAllEventsWidth: CGFloat = 106
             static let stripAllEventsGap: CGFloat = 7
+            /// The strip's event row: the title over its meta line, and the width
+            /// reserved for `Timer until 3:30`. The action's width is fixed for the
+            /// same reason `stripAllEventsWidth` is — the label's clock changes with
+            /// the event, and a button that resized with it would walk the two icon
+            /// buttons beside it along the strip.
+            static let stripTitleToMetaGap: CGFloat = 2
+            static let stripActionWidth: CGFloat = 117
+            static let stripActionHeight: CGFloat = 28
+        }
+
+        /// The day list drawn over the timer by `☰` (the
+        /// `timer-window--idle-day-list-expanded` mockup). The visual specification's
+        /// row grid (§3.1) covers the timer's rows only, so these are read off that
+        /// mockup at 2× — the composition reference — and declared here per §5.
+        ///
+        /// It shares the window's 68 pt footer and its 49 pt top inset, which is what
+        /// keeps the strip's bar and the list's rows on one column and the footer
+        /// exactly where the timer left it.
+        enum DayList {
+            /// `TODAY · WEDNESDAY` and `synced 2:13 PM`, above the hairline.
+            static let headerHeight: CGFloat = 34
+            static let headerToRowsGap: CGFloat = 5
+            /// One event: 28 pt of colour bar in a 44 pt row, per §4's list row.
+            static let rowHeight: CGFloat = 44
+            static let rowBarHeight: CGFloat = 28
+            /// From the bar to the time, and from the time column to the title.
+            static let rowBarGap: CGFloat = 11
+            /// A fixed column, so every title starts on the same edge whatever the
+            /// hour is.
+            static let timeColumnWidth: CGFloat = 62
+            static let timeToTitleGap: CGFloat = 12
+            /// `Back to timer`, in the footer.
+            static let backButtonWidth: CGFloat = 99
+            static let backButtonHeight: CGFloat = 27
         }
     }
 

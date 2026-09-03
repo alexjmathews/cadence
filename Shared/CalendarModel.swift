@@ -11,6 +11,29 @@ struct EventOccurrence: Codable, Equatable, Sendable, Identifiable {
     var title: String
     var startsAt: Date
     var endsAt: Date
+    /// The source calendar's own color as `RRGGBB`, because the visual
+    /// specification (§1.2) has calendar rows inherit it rather than share one
+    /// accent. A string rather than a `CGColor` because the snapshot is JSON in a
+    /// plist and a color reference is neither `Codable` nor `Sendable`; `nil` falls
+    /// back to the event accent.
+    ///
+    /// This is the whole extent of the addition to §2.3's minimal record — a six
+    /// character presentation value, carrying nothing about the event itself.
+    var colorHex: String?
+
+    init(
+        id: String,
+        title: String,
+        startsAt: Date,
+        endsAt: Date,
+        colorHex: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.startsAt = startsAt
+        self.endsAt = endsAt
+        self.colorHex = colorHex
+    }
 
     static func makeID(eventIdentifier: String, startsAt: Date) -> String {
         "\(eventIdentifier)|\(Int(startsAt.timeIntervalSince1970))"

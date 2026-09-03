@@ -195,6 +195,75 @@ final class DesignTokensTests: XCTestCase {
         )
     }
 
+    /// The day list's own geometry, read off `timer-window--idle-day-list-expanded`
+    /// rather than the spec's row grid (which covers the timer's rows only), and
+    /// declared per §5.
+    func testTheDayListGridMatchesTheMockup() {
+        typealias List = DesignTokens.Layout.DayList
+
+        XCTAssertEqual(List.headerHeight, 34)
+        XCTAssertEqual(List.headerToRowsGap, 5)
+        XCTAssertEqual(List.rowHeight, 44)
+        XCTAssertEqual(List.rowBarHeight, 28, "§4's list row, 28 pt of bar in a 44 pt row")
+        XCTAssertEqual(List.rowBarGap, 11)
+        XCTAssertEqual(List.timeColumnWidth, 62)
+        XCTAssertEqual(List.timeToTitleGap, 12)
+        XCTAssertEqual(List.backButtonWidth, 99)
+        XCTAssertEqual(List.backButtonHeight, 27)
+
+        // The list shares the window's 49 pt top inset and its 68 pt footer, which is
+        // what keeps the rows on the strip's column and the footer where the timer
+        // left it.
+        XCTAssertLessThan(List.rowBarHeight, List.rowHeight)
+    }
+
+    /// Why the rows scroll (§3.1). At the window's *minimum* — which is also its
+    /// default — the grid leaves the list less than six rows, so a six-event day laid
+    /// out as a plain stack pushes its own header and footer off the window.
+    func testTheDayListRowsRegionIsSmallerThanABusyDay() {
+        typealias List = DesignTokens.Layout.DayList
+        typealias Row = DesignTokens.Layout.WindowRow
+
+        let rowsRegion = DesignTokens.Layout.windowContentSize.height
+            - Row.contentTopInset
+            - List.headerHeight
+            - DesignTokens.Component.hairlineWidth
+            - List.headerToRowsGap
+            - Row.calendarStripHeight
+
+        XCTAssertEqual(rowsRegion, 257.5)
+        XCTAssertLessThan(
+            rowsRegion, 6 * List.rowHeight,
+            "six events do not fit, which is why the rows scroll rather than overflow"
+        )
+        XCTAssertGreaterThan(
+            rowsRegion, 5 * List.rowHeight,
+            "and the four the mockup draws fit with room to spare, which is why it was not caught"
+        )
+    }
+
+    /// The two tokens stage 3 added for the strip's one filled action, both measured
+    /// off `timer-window--idle-with-event` because §1.1 names neither.
+    func testTheStripActionTokensMatchTheMockup() {
+        assertColor(DesignTokens.Surface.fillStripAction, red: 255, green: 255, blue: 255, alpha: 0.12)
+        assertColor(DesignTokens.Accent.stripAction, red: 0x2F, green: 0x6B, blue: 0xFF, alpha: 0.55)
+
+        // Heavier than `fillSubtle`, which is what lifts the action clear of a footer
+        // that is already a wash over the shell.
+        let action = components(DesignTokens.Surface.fillStripAction).alpha
+        let subtle = components(DesignTokens.Surface.fillSubtle).alpha
+        XCTAssertGreaterThan(action, subtle)
+    }
+
+    /// The dropdown's meeting row fills the reserved colour-bar slot; the bar is
+    /// shorter than the row so it reads as a mark beside the title, not a divider.
+    func testTheDropdownMeetingRowBarMatchesTheMockup() {
+        typealias Sheet = DesignTokens.Layout.Dropdown
+
+        XCTAssertEqual(Sheet.rowBarHeight, 13)
+        XCTAssertLessThan(Sheet.rowBarHeight, Sheet.rowHeight)
+    }
+
     // MARK: - Components
 
     func testComponentMetricsMatchTheSpecification() {

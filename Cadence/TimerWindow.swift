@@ -23,14 +23,107 @@ import SwiftUI
 /// while both are on screen, and every control calls a transition on it.
 struct TimerWindow: View {
     let controller: SessionController
+    let calendar: CalendarController
 
     private typealias Row = DesignTokens.Layout.WindowRow
 
     var body: some View {
+        Group {
+            if calendar.isDayListExpanded {
+                dayList
+            } else {
+                timer
+            }
+        }
+        // The content view's minimum, which is the *frame's* 520 × 414 less the
+        // title bar (see `WindowGeometry`). Resizing is bounded without being
+        // forbidden. It lives out here so the day list is bounded by the same box
+        // the timer is and expanding it cannot resize the window.
+        .frame(
+            minWidth: DesignTokens.Layout.windowContentSize.width,
+            maxWidth: .infinity,
+            minHeight: DesignTokens.Layout.windowContentSize.height,
+            maxHeight: .infinity
+        )
+        .background(shell(controller.status))
+        .background(WindowChrome(background: shell(controller.status)))
+    }
+
+    // MARK: - Calendar
+
+    /// What the strip is showing, derived fresh on every render from the snapshot,
+    /// today's dismissals, the saved buffer and the tick. Nothing about it is stored,
+    /// which is what makes a dismissal promote the next event without anything having
+    /// to promote it (§4).
+    private var stripContent: StripContent {
+        CalendarPresentation.strip(
+            snapshot: calendar.snapshot(at: controller.now),
+            access: calendar.access,
+            dismissed: calendar.dismissed,
+            state: controller.state,
+            buffer: controller.preferences.endEarlyBuffer,
+            now: controller.now
+        )
+    }
+
+    private var strip: some View {
+        CalendarStrip(
+            content: stripContent,
+            start: { stripContent.row.map { startMeeting($0.id) } },
+            dismiss: { stripContent.row.map { calendar.dismiss($0.id) } },
+            toggleDayList: { calendar.isDayListExpanded.toggle() },
+            refresh: { calendar.startRefresh() },
+            connect: { Task { await calendar.connect() } }
+        )
+    }
+
+    private var dayList: some View {
+        DayList(
+            content: CalendarPresentation.dayList(
+                snapshot: calendar.snapshot(at: controller.now),
+                dismissed: calendar.dismissed,
+                state: controller.state,
+                buffer: controller.preferences.endEarlyBuffer,
+                now: controller.now
+            ),
+            access: calendar.access,
+            start: { key in
+                startMeeting(key)
+                // The list is a way *into* a session, so starting one returns to the
+                // clock that is now running.
+                calendar.isDayListExpanded = false
+            },
+            dismiss: { calendar.dismiss($0) },
+            restore: { calendar.restore($0) },
+            refresh: { calendar.startRefresh() },
+            close: { calendar.isDayListExpanded = false }
+        )
+    }
+
+    /// P4, in one place for both the strip and the list: re-resolve the occurrence
+    /// key against the live event store, materialise the buffered deadline, and hand
+    /// the session a title and a duration rather than a pointer to an event. A key
+    /// the store no longer agrees with starts nothing.
+    ///
+    /// The re-resolution is a calendar fetch, so it is awaited off the main actor
+    /// rather than blocking the press; `meetingStart` takes its own `now` when it
+    /// runs and computes the deadline from the live event start, so P4 is unaffected.
+    private func startMeeting(_ key: String) {
+        let buffer = controller.preferences.endEarlyBuffer
+        Task {
+            guard let meeting = await calendar.meetingStart(for: key, buffer: buffer)
+            else { return }
+            controller.startMeeting(meeting)
+        }
+    }
+
+    // MARK: - Timer
+
+    private var timer: some View {
         let status = controller.status
         let slot = WindowSwapSlot.slot(for: controller.state, at: controller.now)
 
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             // Flexible region one (§3.2). Its floor is the inset that clears the
             // traffic lights over the transparent title bar — as the content view
             // measures it, which is a title bar below the window's own top edge.
@@ -51,19 +144,8 @@ struct TimerWindow: View {
             // whatever the window's height.
             Color.clear.frame(height: Row.buttonsToStripGap)
 
-            CalendarStrip()
+            strip
         }
-        // The content view's minimum, which is the *frame's* 520 × 414 less the
-        // title bar (see `WindowGeometry`). Resizing is bounded without being
-        // forbidden.
-        .frame(
-            minWidth: DesignTokens.Layout.windowContentSize.width,
-            maxWidth: .infinity,
-            minHeight: DesignTokens.Layout.windowContentSize.height,
-            maxHeight: .infinity
-        )
-        .background(shell(status))
-        .background(WindowChrome(background: shell(status)))
     }
 
     // MARK: - Shell
@@ -442,98 +524,6 @@ private struct ProgressRule: View {
             }
         }
         .frame(height: DesignTokens.Component.progressRuleHeight)
-    }
-}
-
-// MARK: - Calendar strip
-
-/// The footer, at its real 68 pt from day one and rendering the empty state only.
-///
-/// EventKit, the event row, dismissal, the day list and the last-synced time all
-/// belong to the calendar stage. What matters here is that the row is already the
-/// right height and laid out on the column the event row will use, so nothing above
-/// it moves when the events arrive.
-private struct CalendarStrip: View {
-    private typealias Row = DesignTokens.Layout.WindowRow
-
-    var body: some View {
-        HStack(spacing: 0) {
-            // The event color bar's slot, held at the strip's own hairline weight.
-            RoundedRectangle(cornerRadius: DesignTokens.Component.eventColorBarRadius)
-                .fill(DesignTokens.Surface.hairline)
-                .frame(
-                    width: DesignTokens.Component.eventColorBarWidth,
-                    height: Row.stripBarHeight
-                )
-                .padding(.trailing, Row.stripBarGap)
-
-            Text("Nothing else on your calendar today")
-                .font(DesignTokens.Typography.stripEventTitle)
-                .foregroundStyle(DesignTokens.TextColor.quaternary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: Row.stripControlGap)
-
-            refresh
-            allEvents
-        }
-        .padding(.horizontal, Row.stripHorizontalPadding)
-        .frame(height: Row.calendarStripHeight)
-        .frame(maxWidth: .infinity)
-        .background(DesignTokens.Surface.fillStrip)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(DesignTokens.Surface.hairline)
-                .frame(height: DesignTokens.Component.hairlineWidth)
-        }
-    }
-
-    /// Present and inert. There is no calendar to re-read yet, and shipping the
-    /// affordance disabled rather than absent is what keeps the strip's trailing
-    /// edge from moving when the calendar stage wires it up.
-    private var refresh: some View {
-        stripControl(radius: DesignTokens.Component.refreshIconButtonRadius) {
-            Image(systemName: "arrow.clockwise")
-                .font(DesignTokens.Typography.micro)
-                .frame(
-                    width: DesignTokens.Component.refreshIconButtonSize,
-                    height: DesignTokens.Component.refreshIconButtonSize
-                )
-        }
-        .accessibilityLabel("Refresh calendar")
-    }
-
-    /// The day list's affordance, disabled for the same reason `refresh` is. Its
-    /// width is the whole point: the mockup puts a ~106 pt button here, and wiring it
-    /// up in the calendar stage must not shove the refresh icon left and reflow the
-    /// strip's trailing edge — which is exactly the jump the reserved rows of §3.1
-    /// exist to prevent.
-    private var allEvents: some View {
-        stripControl(radius: DesignTokens.Component.stripIconButtonRadius) {
-            HStack(spacing: Row.stripAllEventsGap) {
-                Text("All events")
-                    .font(DesignTokens.Typography.stripEventTitle)
-                Image(systemName: "line.3.horizontal")
-                    .font(DesignTokens.Typography.body)
-            }
-            .frame(
-                width: Row.stripAllEventsWidth,
-                height: DesignTokens.Component.stripIconButtonSize
-            )
-        }
-        .accessibilityLabel("All events")
-    }
-
-    private func stripControl(
-        radius: CGFloat,
-        @ViewBuilder content: () -> some View
-    ) -> some View {
-        content()
-            .foregroundStyle(DesignTokens.TextColor.quaternary)
-            .background(DesignTokens.Surface.fillSubtle, in: .rect(cornerRadius: radius))
-            .padding(.leading, Row.stripControlGap)
-            .accessibilityAddTraits(.isButton)
     }
 }
 

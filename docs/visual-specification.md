@@ -99,7 +99,7 @@ Why the clock and buttons never move between states:
 
 | Row | Height | Contents |
 |---|---|---|
-| Event title | 20 | Event-named sessions only; reserved otherwise |
+| Event title | 20 | Occupied whenever the session has a stored title; reserved otherwise |
 | Numerals | 96 (+10 above) | |
 | Swap slot | 62 (+10 above) | Idle: presets + buffer. Running / complete: 5px rule + status line |
 | Buttons | 40 (+6 above) | |
@@ -108,6 +108,17 @@ Why the clock and buttons never move between states:
 The reserved event-title row and the fixed-height swap slot and strip are the whole
 mechanism behind "without the layout jumping" and "the quick durations disappear
 once a session starts" — the rows are always allocated, only their contents change.
+
+The title row follows the *stored* title, not the running state: a meeting session
+that has been reset is idle but still named, because `reset` keeps the plan
+(data model §5). The row therefore stays occupied until a different session
+replaces the title.
+
+**Any row list inside the window scrolls rather than overflowing.** The grid
+allocates a fixed height to the day list's rows, and a busy calendar has more
+events than fit — the header and the 68 pt footer stay pinned, and only the rows
+scroll. A list that grows the layout instead would push its own footer off the
+bottom of a window whose minimum size is 520 × 414.
 
 ### 3.2 Resizing
 

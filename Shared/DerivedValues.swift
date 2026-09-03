@@ -150,3 +150,85 @@ extension CalendarSnapshot {
         day == calendar.startOfDay(for: now)
     }
 }
+
+/// The calendar-dependent derivations (§4). They take the snapshot, the dismissal
+/// set and `now` as arguments rather than reading a store, so they are pure and the
+/// app and the widget compute the same suggestion from the same record.
+enum CalendarDerivations {
+    /// A suggestion has to still be worth offering: below this the session would be
+    /// over before the user let go of the mouse. §4 writes it as
+    /// `startsAt − buffer > now + 1 min`.
+    static let minimumLead: TimeInterval = 60
+
+    /// The first event that is neither dismissed nor too close to be worth timing
+    /// against (§4).
+    ///
+    /// The buffer is part of the test, not just of the deadline: an event 90 seconds
+    /// away with a 2 minute buffer would yield a *negative* duration, and offering
+    /// it would be offering a timer that has already finished.
+    ///
+    /// A snapshot for another day suggests nothing. It is the same test the day list
+    /// applies and the store applies on read, repeated here because "never yesterday's
+    /// meetings" (§2.3) should not depend on which of three callers remembered it.
+    static func suggestedEvent(
+        in snapshot: CalendarSnapshot?,
+        dismissed: Set<String>,
+        buffer: TimeInterval,
+        now: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> EventOccurrence? {
+        guard let snapshot,
+              snapshot.access == .authorized,
+              snapshot.isFresh(now, calendar: calendar)
+        else { return nil }
+        return snapshot.events.first { event in
+            guard !dismissed.contains(event.id) else { return false }
+            return timeableDuration(until: event.startsAt, buffer: buffer, now: now) != nil
+        }
+    }
+
+    /// `status == .idle && suggestedEvent != nil` (§4). `complete` is deliberately
+    /// not included: §5 makes `startAnother` legal there, but the strip's action is
+    /// the *idle* offer, and the mockups draw no meeting action over the mint shell.
+    static func canStartMeetingTimer(
+        for state: SessionState,
+        suggestion: EventOccurrence?,
+        now: Date
+    ) -> Bool {
+        state.effectiveStatus(now) == .idle && suggestion != nil
+    }
+
+    /// The session length a meeting-linked start would materialise: from `now` to
+    /// the event's start, less the buffer (§2.2, P4).
+    ///
+    /// `nil` when that is not a session anyone would want — the event has begun, or
+    /// the buffer has eaten what was left. The caller starts nothing rather than
+    /// starting something absurd.
+    static func meetingDuration(
+        until startsAt: Date,
+        buffer: TimeInterval,
+        now: Date
+    ) -> TimeInterval? {
+        let duration = startsAt.addingTimeInterval(-max(0, buffer)).timeIntervalSince(now)
+        return duration > 0 ? duration : nil
+    }
+
+    /// `meetingDuration` held to §4's one threshold: a session worth *offering*, not
+    /// merely one with a positive length.
+    ///
+    /// This is the single definition of "worth timing against", and every surface
+    /// that offers a meeting-linked start goes through it — the strip's action, the
+    /// day list's `Start 120m`, and the press itself. Two surfaces disagreeing about
+    /// it is how the day list came to offer `Start 0m` for an event twenty seconds
+    /// past the buffer while the strip correctly offered nothing.
+    static func timeableDuration(
+        until startsAt: Date,
+        buffer: TimeInterval,
+        now: Date
+    ) -> TimeInterval? {
+        guard let duration = meetingDuration(until: startsAt, buffer: buffer, now: now),
+              duration > minimumLead
+        else { return nil }
+        return duration
+    }
+}

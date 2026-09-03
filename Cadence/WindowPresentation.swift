@@ -106,11 +106,14 @@ private extension Array where Element == String? {
     var compacted: [String] { compactMap { $0 } }
 }
 
-/// `DateFormatter`s kept alive across renders, one per locale and time zone.
+/// `DateFormatter`s kept alive across renders, one per locale and time zone. Shared
+/// by every surface that prints a time — the status line, the calendar strip, and the
+/// day list — because building one per second to print times that change once a
+/// minute is worth not doing.
 ///
 /// `@unchecked Sendable` is earned by the lock: every access to the dictionary is
 /// inside it, and a `DateFormatter` handed out is only ever read.
-private final class FormatterCache: @unchecked Sendable {
+final class FormatterCache: @unchecked Sendable {
     private let template: String
     private let lock = NSLock()
     private var formatters: [String: DateFormatter] = [:]

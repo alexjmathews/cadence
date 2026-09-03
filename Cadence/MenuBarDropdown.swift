@@ -8,6 +8,7 @@ import SwiftUI
 /// state of its own.
 struct MenuBarDropdown: View {
     let controller: SessionController
+    let calendar: CalendarController
 
     @Environment(\.openWindow) private var openWindow
 
@@ -167,9 +168,56 @@ struct MenuBarDropdown: View {
                 }
             }
 
-            // The calendar lands in a later stage; until then the row the events
-            // would occupy carries the empty copy.
-            Text("Nothing on your calendar today")
+            calendarRow(status)
+        }
+        .padding(.top, Sheet.rowsTopPadding)
+        .padding(.bottom, Sheet.rowsBottomPadding)
+    }
+
+    // MARK: - Calendar
+
+    /// One row, four states (§3.3). `To Design review` when there is something to
+    /// time against; otherwise a row about *access*, because `Nothing on your
+    /// calendar today` is a statement about the day and is simply false when Cadence
+    /// has never been allowed to look at one.
+    ///
+    /// Unlike the clock targets above it the meeting row carries the buffer (D7): its
+    /// whole point is not to still be running when the meeting starts.
+    @ViewBuilder
+    private func calendarRow(_ status: SessionStatus) -> some View {
+        let content = CalendarPresentation.dropdownCalendar(
+            access: calendar.access,
+            suggestion: suggestion,
+            buffer: controller.preferences.endEarlyBuffer,
+            now: controller.now
+        )
+
+        switch content {
+        case .meeting(let meeting):
+            PresetRow(
+                preset: meeting,
+                isSelectable: status == .idle,
+                barColor: suggestion.map(EventRow.barColor)
+            ) {
+                if let suggestion { startMeeting(suggestion.id) }
+            }
+
+        // The one connect affordance reachable without opening the window. It is a
+        // control, not copy: pressing it is what raises the system prompt.
+        case .connect:
+            actionRow(content.copy ?? "", accent: true) {
+                Task { await calendar.connect() }
+            }
+
+        // The prompt will not return for a denied user (EventKit refuses to ask
+        // twice), so this row goes where the switch actually is.
+        case .denied:
+            actionRow(content.copy ?? "", accent: false) {
+                calendar.openSystemSettings()
+            }
+
+        case .empty:
+            Text(content.copy ?? "")
                 .font(DesignTokens.Typography.body)
                 .foregroundStyle(DesignTokens.TextColor.quaternary)
                 .frame(
@@ -179,8 +227,60 @@ struct MenuBarDropdown: View {
                 )
                 .padding(.horizontal, Sheet.horizontalPadding)
         }
-        .padding(.top, Sheet.rowsTopPadding)
-        .padding(.bottom, Sheet.rowsBottomPadding)
+    }
+
+    /// A calendar row that does something, on the same column and row height the
+    /// presets use so the sheet's geometry does not depend on the access state.
+    private func actionRow(
+        _ title: String,
+        accent: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: DesignTokens.Component.eventColorBarWidth)
+                    .padding(.trailing, Sheet.rowBarGap)
+
+                Text(title)
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(
+                        accent
+                            ? DesignTokens.Accent.text
+                            : DesignTokens.TextColor.secondary
+                    )
+                    .lineLimit(1)
+
+                Spacer(minLength: DesignTokens.Component.listRowGap)
+            }
+            .padding(.horizontal, Sheet.horizontalPadding)
+            .frame(height: Sheet.rowHeight)
+        }
+        .buttonStyle(SheetRowStyle())
+        .accessibilityLabel(title)
+    }
+
+    private var suggestion: EventOccurrence? {
+        calendar.suggestion(
+            buffer: controller.preferences.endEarlyBuffer,
+            now: controller.now
+        )
+    }
+
+    /// The same path the window's strip takes (P4): re-resolve the key against the
+    /// live store, materialise `eventStart − buffer`, copy the title. Two surfaces,
+    /// one derivation, so a meeting timer started here and one started from the
+    /// window are the same state.
+    private func startMeeting(_ key: String) {
+        let buffer = controller.preferences.endEarlyBuffer
+        // The re-resolution is a calendar fetch and so is awaited off the main actor;
+        // the press is still what decides the instant, since `meetingStart` takes its
+        // own `now` when it runs and the deadline is materialised from the live start.
+        Task {
+            guard let meeting = await calendar.meetingStart(for: key, buffer: buffer)
+            else { return }
+            controller.startMeeting(meeting)
+        }
     }
 
     // MARK: - Footer
@@ -230,6 +330,10 @@ struct MenuBarDropdown: View {
 private struct PresetRow: View {
     let preset: DurationPreset
     let isSelectable: Bool
+    /// A meeting row fills the reserved colour-bar slot with its source calendar's
+    /// colour; a duration row leaves it empty, which is what keeps every title on the
+    /// same column whether or not there is a meeting among them.
+    var barColor: Color?
     let action: () -> Void
 
     private typealias Sheet = DesignTokens.Layout.Dropdown
@@ -237,11 +341,17 @@ private struct PresetRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 0) {
-                // The event color bar's slot, held empty. A meeting row joins this
-                // list in a later stage and no title moves when it does.
-                Color.clear
-                    .frame(width: DesignTokens.Component.eventColorBarWidth)
-                    .padding(.trailing, Sheet.rowBarGap)
+                Group {
+                    if let barColor {
+                        RoundedRectangle(cornerRadius: DesignTokens.Component.eventColorBarRadius)
+                            .fill(barColor)
+                            .frame(height: Sheet.rowBarHeight)
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(width: DesignTokens.Component.eventColorBarWidth)
+                .padding(.trailing, Sheet.rowBarGap)
 
                 Text(preset.title)
                     .font(DesignTokens.Typography.body)
