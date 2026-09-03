@@ -46,8 +46,20 @@ struct SharedStore: @unchecked Sendable {
     /// The current session, reconciled against `now` so a deadline that elapsed
     /// while the app was quit is already folded in.
     func loadSessionState(now: Date) -> SessionState {
-        let stored = decode(SessionState.self, forKey: Key.sessionState) ?? SessionState()
-        return SessionTransitions.reconciled(stored, now: now)
+        SessionTransitions.reconciled(loadStoredSessionState(), now: now)
+    }
+
+    /// The record exactly as stored, *without* reconciliation. Every surface wants
+    /// `loadSessionState` instead (D4).
+    ///
+    /// This exists for the one caller that needs to know whether the stored record and
+    /// its reconciliation *differ* — that is, whether there is a completion still to
+    /// bank. A reconciling read cannot answer that, because it has already folded the
+    /// difference in and hands back a value equal to what the transition would produce.
+    /// Comparing a reconciled read against a reconciliation of itself is how the
+    /// completion came to be derived correctly on every surface and persisted on none.
+    func loadStoredSessionState() -> SessionState {
+        decode(SessionState.self, forKey: Key.sessionState) ?? SessionState()
     }
 
     @discardableResult

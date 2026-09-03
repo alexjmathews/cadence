@@ -181,14 +181,18 @@ struct TimerWindow: View {
     private func eventTitleRow(_ status: SessionStatus) -> some View {
         HStack(spacing: Row.eventTitleBarGap) {
             if let title = controller.state.title {
+                // A mark, not a thing to read: VoiceOver would otherwise stop on an
+                // unlabelled image before reaching the name beside it.
                 RoundedRectangle(cornerRadius: DesignTokens.Component.eventColorBarRadius)
                     .fill(DesignTokens.Accent.event)
                     .frame(
                         width: DesignTokens.Component.eventColorBarWidth,
                         height: Row.eventTitleBarHeight
                     )
+                    .accessibilityHidden(true)
 
                 Text(title)
+                    .accessibilityLabel("Session name, \(title)")
                     .font(DesignTokens.Typography.windowEventTitle)
                     .foregroundStyle(DesignTokens.TextColor.secondary)
                     .lineLimit(1)
@@ -209,6 +213,7 @@ struct TimerWindow: View {
         EditableNumerals(
             duration: controller.state.remaining(controller.now),
             color: numeralsColor(status),
+            accessibilityStatus: status,
             isEditable: isEditable,
             commit: controller.selectDuration,
             start: controller.start
@@ -234,6 +239,9 @@ struct TimerWindow: View {
                 }
             case .summary(let line):
                 progressColumn(status: status) {
+                    // The heading and the span read as one announcement: focus stopping
+                    // twice to say "Session complete" and then a bare time range makes
+                    // the second stop meaningless on its own.
                     VStack(spacing: 0) {
                         Text("Session complete")
                             .font(DesignTokens.Typography.windowButton)
@@ -245,6 +253,7 @@ struct TimerWindow: View {
                                 .foregroundStyle(DesignTokens.Accent.completeCaption)
                         }
                     }
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
@@ -278,8 +287,10 @@ struct TimerWindow: View {
         VStack(spacing: Row.presetsToBufferGap) {
             HStack(spacing: Row.presetChipGap) {
                 ForEach(controller.presets) { preset in
+                    // The chip shows `45 min`; VoiceOver says what pressing it does.
                     Button(preset.shortTitle) { controller.select(preset) }
                         .buttonStyle(PresetChipStyle())
+                        .accessibilityLabel("Set duration to \(preset.title)")
                 }
             }
 
@@ -292,8 +303,9 @@ struct TimerWindow: View {
                 // than the nearest thing, which is what `selected(for:)` decides.
                 let selected = BufferOption.selected(for: controller.preferences.endEarlyBuffer)
                 ForEach(BufferOption.all) { option in
-                    Button(option.label) { controller.setBuffer(option.seconds) }
-                        .buttonStyle(BufferChipStyle(isSelected: option == selected))
+                    BufferChip(option: option, isSelected: option == selected) {
+                        controller.setBuffer(option.seconds)
+                    }
                 }
             }
         }
@@ -373,9 +385,19 @@ struct TimerWindow: View {
 /// third minute digit widens the left column without sliding the clock sideways.
 /// Tracking is added after the final glyph as well as between glyphs, so the minutes
 /// column negates it as trailing padding to put its last digit *on* the column edge.
-private struct EditableNumerals: View {
+///
+/// Internal rather than private so `SpokenLabelTests` can build the real row and read the
+/// accessibility label off it. `SpokenText` being well tested says nothing about whether
+/// any view calls it — reverting this row's label to the padded `05:00` was measured
+/// leaving the whole suite green.
+struct EditableNumerals: View {
     let duration: TimeInterval
     let color: Color
+    /// The status the clock is announced as, which is not derivable from `isEditable`:
+    /// `idle` and `complete` both make the numerals non-editable (§5's third guard
+    /// permits selection only in `idle`, and the swap slot enforces it), and the two say
+    /// very different things.
+    let accessibilityStatus: SessionStatus
     let isEditable: Bool
     let commit: (TimeInterval) -> Void
     let start: () -> Void
@@ -405,6 +427,15 @@ private struct EditableNumerals: View {
         .foregroundStyle(color)
         .lineLimit(1)
         .frame(maxWidth: .infinity, minHeight: Row.numeralsHeight, maxHeight: Row.numeralsHeight)
+        // The clock is the one thing every surface exists to show (D10), so it is one
+        // accessibility element rather than three — two halves and a colon read as
+        // "zero five", "colon", "zero zero" otherwise. It is announced in words, since
+        // the two-digit padding is a fact about monospaced glyphs and not about the
+        // time. While editable the fields keep their own focus and values, so the
+        // combined element is only claimed when they are not controls.
+        .accessibilityElement(children: isEditable ? .contain : .ignore)
+        .accessibilityLabel(SpokenText.clockLabel(for: accessibilityStatus))
+        .accessibilityValue(isEditable ? "" : SpokenText.duration(duration))
         // The fields mirror the plan whenever they are not the thing changing it:
         // a preset chip, a widget-driven reset, or the window opening.
         .onChange(of: duration, initial: true) { _, _ in syncFromPlan() }
@@ -501,6 +532,18 @@ private final class NumeralDraft {
 // MARK: - Progress
 
 /// The window's 5 pt rule, full width of the content column.
+///
+/// **Reduce Motion has nothing to suppress here, and that is by construction.** The
+/// rule carries no `.animation` and no `withAnimation`: its width is a pure function of
+/// `progress(now)`, and `now` advances once a second from the display ticker (D1). So
+/// the fill steps rather than sliding, which is already the behaviour Reduce Motion
+/// asks for — there is no transition to shorten and no interpolation to disable. An
+/// implicit animation added here later would be a motion regression that no
+/// `accessibilityReduceMotion` read in this file would catch, so the discipline is
+/// "the rule does not animate" rather than "the rule animates conditionally".
+///
+/// It is announced as a value with no hint, because it is a rule and not a control:
+/// there is nothing to do to it.
 private struct ProgressRule: View {
     let progress: Double
     let fill: Color
@@ -524,10 +567,35 @@ private struct ProgressRule: View {
             }
         }
         .frame(height: DesignTokens.Component.progressRuleHeight)
+        .accessibilityElement()
+        .accessibilityLabel("Session progress")
+        .accessibilityValue(SpokenText.progress(progress))
     }
 }
 
 // MARK: - Button styles
+
+/// One end-early chip, whose visible label is `off` / `1m` / `2m` / `3m`.
+///
+/// Its own view rather than three modifiers inside a `ForEach`, and internal rather than
+/// private, for one reason: `SpokenLabelTests` can build a chip and read the spoken label
+/// off it, which a closure inside a `ForEach` does not expose. Deleting
+/// `SpokenText.buffer` here was measured leaving the whole suite green, and `2m` read out
+/// as "two em" is the case the file exists for.
+struct BufferChip: View {
+    let option: BufferOption
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(option.label, action: action)
+            .buttonStyle(BufferChipStyle(isSelected: isSelected))
+            .accessibilityLabel(SpokenText.buffer(option.seconds))
+            // The chip row is a single choice, so the selected one has to announce
+            // itself as chosen rather than merely look chosen.
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
 
 private struct WindowPrimaryButtonStyle: ButtonStyle {
     let fill: Color

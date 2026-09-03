@@ -56,7 +56,7 @@ struct EventRow: Equatable, Identifiable {
     }
 
     static func barColor(for colorHex: String?) -> Color {
-        colorHex.flatMap(Color.init(hexString:)) ?? DesignTokens.Accent.event
+        DesignTokens.eventBarColor(forHex: colorHex)
     }
 
     var titleColor: Color {

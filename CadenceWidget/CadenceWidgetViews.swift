@@ -129,7 +129,7 @@ struct WidgetTileView: View {
         .monospacedDigit()
         .foregroundStyle(shell.numerals)
         .lineLimit(1)
-        .minimumScaleFactor(0.6)
+        .minimumScaleFactor(DesignTokens.Typography.widgetNumeralsMinimumScale)
         .frame(height: Grid.numeralsRowHeight, alignment: .center)
     }
 
@@ -440,8 +440,17 @@ private struct SuggestionRowView: View {
     private var barColor: Color {
         // Copy is not a row anything starts, so it carries no mark — but it keeps the
         // slot, so its text sits on the same column as the titles above it.
-        guard row.action != nil else { return .clear }
-        guard let hex = row.barColorHex else { return DesignTokens.Surface.widgetRowBar }
-        return Color(hexString: hex) ?? DesignTokens.Accent.event
+        guard let action = row.action else { return .clear }
+
+        // A meeting row goes through the shared derivation, fallback included, so a
+        // calendar that reported no colour draws the same bar here as it does in the
+        // dropdown and the window strip. Falling back to the neutral mark instead — which
+        // this did — made one event two colours depending on which surface you looked at.
+        if case .startMeeting = action {
+            return DesignTokens.eventBarColor(forHex: row.barColorHex)
+        }
+        // A duration or a clock target has no calendar to inherit from; the mark holds the
+        // column open.
+        return DesignTokens.Surface.widgetRowBar
     }
 }

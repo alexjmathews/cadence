@@ -140,6 +140,16 @@ enum DesignTokens {
         static let dropdownNumeralsTracking: CGFloat = -1.5
         static let widgetNumerals = Font.system(size: 44, weight: .medium, design: .monospaced)
         static let widgetNumeralsTracking: CGFloat = -2.5
+        /// How far the widget's clock may shrink, and the one place in the product where a
+        /// clock scales at all.
+        ///
+        /// D10 forbids compressing, ellipsing or truncating the clock and says the two
+        /// menu-bar surfaces widen instead — but 170 × 170 and 364 × 170 are fixed by
+        /// WidgetKit, so the widget cannot. Scaling is the remaining option and it is the
+        /// acceptable one, because the whole clock stays on screen and legible; an ellipsis
+        /// destroys the reading. `Clock.widest` at 44 pt is 148 pt against a 151 pt tile
+        /// column, so in practice the scale is headroom rather than a thing that happens.
+        static let widgetNumeralsMinimumScale: CGFloat = 0.6
 
         /// "TODAY · WEDNESDAY" — uppercased by the caller.
         static let sectionLabel = Font.system(size: 11, weight: .semibold)
@@ -166,6 +176,53 @@ enum DesignTokens {
         static let listTime = Font.system(size: 12, design: .monospaced)
         /// Preset lengths and buffer chips.
         static let chipMeta = Font.system(size: 11.5, design: .monospaced)
+    }
+
+    /// The colour bar beside an event, wherever an event appears — the dropdown's meeting
+    /// row, the window's strip, the day list, the medium widget's suggestion row.
+    ///
+    /// Here, and shared, because it is a *derivation* with a fallback and the fallback is
+    /// where the four surfaces drifted: the app fell back to `Accent.event` for a calendar
+    /// that reported no colour while the widget fell back to its neutral row mark, so one
+    /// meeting drew an orange bar in the dropdown and a grey one on the card at the same
+    /// moment. One function is the only thing that fixes that class of fault rather than
+    /// this instance of it.
+    ///
+    /// `nil` is *no calendar to inherit from* — a duration row or a clock target — and is
+    /// the caller's to handle, because "keep the slot in a neutral mark" is a fact about
+    /// the row's grid rather than about the event.
+    static func eventBarColor(forHex hex: String?) -> Color {
+        hex.flatMap(Color.init(hexString:)) ?? Accent.event
+    }
+
+    // MARK: - Clock
+
+    /// The clock is never compressed, ellipsed, or truncated; everything else yields
+    /// to it (D10). These are the two values that rule needs in code.
+    enum Clock {
+        /// The widest legitimate clock, as a string every surface can measure itself
+        /// against. `ClockFormatter` carries minutes past 59 rather than rolling over
+        /// to hours, so the widest form is three minute digits plus two seconds.
+        ///
+        /// `999:59` is the largest value `ClockFormatter` will print, but the numerals
+        /// are monospaced with tabular figures — every digit has the same advance — so
+        /// any six-glyph clock measures identically and `600:00` is the one D10 names.
+        static let widest = "600:00"
+
+        /// The clock's layout priority where it shares a row with a label — the
+        /// dropdown's status word, and any surface that grows one later. A `Text` at
+        /// the default priority beside another flexible `Text` gets *negotiated* with,
+        /// which is how a long meeting title came to render the clock as `60:...`.
+        ///
+        /// The clock also takes its ideal width unconditionally (`.fixedSize`). The two
+        /// are belt-and-braces rather than two halves of one mechanism: at the widths
+        /// Cadence draws today either one alone is sufficient — removing `.fixedSize`
+        /// and keeping this priority still renders the whole clock, and
+        /// `DropdownGeometryTests` only fails when *both* are dropped. They are kept
+        /// together because they forbid the compression in different ways: a priority
+        /// orders it, and `.fixedSize` refuses it, so a wider clock or a narrower sheet
+        /// is caught by the second when it outgrows the first.
+        static let layoutPriority: Double = 1
     }
 
     // MARK: - Sizing
@@ -226,8 +283,31 @@ enum DesignTokens {
             /// rather than a divider.
             static let rowBarHeight: CGFloat = 13
             static let rowsBottomPadding: CGFloat = 6
-            /// `Open Cadence ⌘O`.
+            /// One footer row — `Open Cadence ⌘O`, `Settings… ⌘,`, `Quit Cadence ⌘Q`.
+            /// The sheet carries three of them (D8 as amended in Stage 5), which is
+            /// two rows past the mockup's height; `DesignTokensTests` composes the
+            /// total and pins it.
             static let footerHeight: CGFloat = 40
+
+            /// The column the numerals hold in the header, at `Clock.widest` in the
+            /// dropdown face — 38 pt monospaced, `-1.5` tracking. Measured at
+            /// 131.94 pt and rounded up; `DesignTokensTests` re-measures the real face
+            /// against this, so a system whose monospaced digits are wider fails the
+            /// suite rather than shipping a clipped clock.
+            static let clockReservedWidth: CGFloat = 132
+            /// The column left for the word beside the numerals. `complete` is the
+            /// widest of the four bare status words at 56.36 pt, so reserving this
+            /// much is what makes *titles* the only thing that ever truncates (D10) —
+            /// the status words themselves always render whole.
+            static let statusWordMinimumWidth: CGFloat = 57
+            /// The narrowest sheet that can hold the widest clock beside an untruncated
+            /// status word. `dropdownWidth` is asserted against this rather than
+            /// derived from it: §3 states the sheet's width, and this is the floor that
+            /// statement has to clear.
+            static var minimumWidth: CGFloat {
+                2 * horizontalPadding + clockReservedWidth + controlPadding
+                    + statusWordMinimumWidth
+            }
         }
 
         /// The status item's three states. The system owns the item's height (§3 —
@@ -245,6 +325,23 @@ enum DesignTokens {
             /// rendered color on a dark bar, legible on a light one — see
             /// `StatusPill`.
             static let pillTintOpacity: Double = 0.28
+            /// The column the countdown holds in the pill, at `Clock.widest` in the
+            /// pill's face — 12 pt monospaced, no tracking. Measured at 44.51 pt and
+            /// rounded up.
+            ///
+            /// The pill is *reserved* to this width rather than hugging its digits, so
+            /// the item does not walk along the menu bar as a session crosses from
+            /// `100:00` to `99:59` and the two icons to its left shuffle sideways.
+            /// Tabular figures keep `00:00` from moving inside it; three-digit minutes
+            /// are what would otherwise move the pill itself.
+            static let pillClockWidth: CGFloat = 45
+            /// The whole pill at that reservation: the mark, the gap, the clock column
+            /// and the chip's own padding. Asserted against a real render in
+            /// `WidgetGeometryTests`, which is the only check that the clock is inside
+            /// the chip rather than merely narrower than it.
+            static var pillWidth: CGFloat {
+                2 * pillHorizontalPadding + glyphSize + pillContentGap + pillClockWidth
+            }
         }
 
         /// Reserved row heights are the whole mechanism behind the clock and
@@ -298,6 +395,25 @@ enum DesignTokens {
             static let numeralFieldMinimumWidth: CGFloat = 50
             /// The progress rule's column, and the widest any row may run.
             static let horizontalPadding: CGFloat = 40
+            /// One symmetric numeral column at three digits, in the window face —
+            /// 92 pt monospaced, `-6` tracking. `600` measures 152.61 pt; the column
+            /// negates the trailing tracking, so its advance is 146.61 — but the
+            /// *ink* a render puts down is 147.5, because the glyphs overshoot their
+            /// advance and are antialiased at the edges. The reserved column is the one
+            /// a render measures, not the one the metrics predict, since the render is
+            /// what the user sees.
+            ///
+            /// §3.2 makes the two halves equal-width columns either side of a colon on
+            /// the centre line, so the widest clock the window can draw is twice this
+            /// plus the colon's own advance — which has to fit inside the content
+            /// column at the window's *minimum* width, or a three-digit session would
+            /// push its own numerals under the window edge. `DesignTokensTests` does
+            /// that arithmetic.
+            static let numeralColumnWidth: CGFloat = 148
+            /// The colon's advance at the same face, measured at 50.87 pt. It carries
+            /// no tracking — its ink is centred in its own advance, which is what puts
+            /// it on the window's centre line.
+            static let numeralColonWidth: CGFloat = 51
             /// The event-title row's color bar and the gap to the title.
             static let eventTitleBarHeight: CGFloat = 14
             static let eventTitleBarGap: CGFloat = 8
@@ -417,6 +533,24 @@ enum DesignTokens {
             static let suggestionBarGap: CGFloat = 8
             /// At most three rows fit the card; the derivation offers no more.
             static let suggestionRowLimit = 3
+        }
+
+        /// The settings pane (`Settings` scene, `⌘,`), which holds the one set-once
+        /// preference the product has: launch at login. D8 keeps it out of the dropdown
+        /// sheet — that sheet is per-session actions — and §3.1's row grid has no slot
+        /// for it, so it gets the platform's own home for a preference.
+        ///
+        /// **The visual specification describes no settings surface**, and these values
+        /// are therefore not read off a mockup like `Dropdown` and `WindowRow` are.
+        /// They are composed from rhythm that already exists: the sheet's own
+        /// horizontal inset and row height, and a width narrow enough that the pane
+        /// reads as one switch rather than as a preferences window with one thing in
+        /// it. Nothing here is a new metric; it is existing metrics arranged.
+        enum Settings {
+            static let width: CGFloat = 320
+            static var padding: CGFloat { Dropdown.horizontalPadding }
+            static var rowHeight: CGFloat { Dropdown.footerHeight }
+            static var captionGap: CGFloat { Dropdown.rowsTopPadding }
         }
 
         /// The day list drawn over the timer by `☰` (the

@@ -383,6 +383,85 @@ final class WidgetActionsTests: XCTestCase {
         XCTAssertEqual(store.loadSessionState(now: now), idle)
     }
 
+    // MARK: - The alarm the press owns (D3)
+
+    /// **A widget press owns the alarm it implies, and this is the case D3 was amended
+    /// for.** With the app quit for the whole session — which D2 makes the ordinary widget
+    /// case — there is nobody else to arm the completion alarm and nobody else to notice
+    /// it was never armed. Deleting the one `scheduler?.reconcile` line in `perform` was
+    /// measured leaving the entire suite green while removing the alarm from every widget
+    /// press, every `cadence://` command and every Shortcuts invocation.
+    ///
+    /// The scheduler is the shared one from `Shared/`, over a recording centre — so this
+    /// asserts the widget's store gets the same request the app's would, which is the
+    /// whole reason the scheduler lives in `Shared/` and takes its centre as an argument.
+    func testAnAcceptedPressArmsTheAlarmInThisProcessesOwnStore() throws {
+        let now = Clock.at(14, 0)
+        store.save(.idle(plannedDuration: 30 * minute))
+
+        let centre = RecordingCentre()
+        let result = WidgetActions.perform(
+            .start,
+            store: store,
+            scheduler: CompletionScheduler(center: { centre }),
+            now: now,
+            calendar: Clock.calendar
+        )
+
+        XCTAssertTrue(result.changed)
+        XCTAssertEqual(centre.added.count, 1, "the press that wrote the record armed its alarm")
+        XCTAssertEqual(centre.added.first?.identifier, CompletionAlarm.identifier)
+        XCTAssertEqual(
+            try XCTUnwrap(centre.added.first?.interval), 30 * minute, accuracy: 0.001,
+            "at the deadline the record it just wrote implies"
+        )
+    }
+
+    /// `pause` and `reset` are the other half: this process performed the transition, so
+    /// this process cancels in its own store.
+    func testAPressThatStopsTheSessionCancelsTheAlarm() {
+        let now = Clock.at(14, 0)
+        store.save(.running(
+            plannedDuration: 25 * minute,
+            startedAt: Clock.at(13, 50),
+            endsAt: Clock.at(14, 15),
+            segmentStartedAt: Clock.at(13, 50)
+        ))
+
+        let centre = RecordingCentre()
+        WidgetActions.perform(
+            .pause,
+            store: store,
+            scheduler: CompletionScheduler(center: { centre }),
+            now: now,
+            calendar: Clock.calendar
+        )
+
+        XCTAssertEqual(centre.removedPending, [[CompletionAlarm.identifier]])
+        XCTAssertEqual(centre.added, [])
+    }
+
+    /// A press a guard refused wrote nothing, so nothing about the alarm changed either —
+    /// `perform` returns before it reaches the scheduler. A `Pause` on a stale card must
+    /// not cancel the alarm of a session that is still running.
+    func testARefusedPressLeavesTheAlarmAlone() {
+        let now = Clock.at(14, 0)
+        store.save(SessionState.idle())
+
+        let centre = RecordingCentre()
+        let result = WidgetActions.perform(
+            .extend,
+            store: store,
+            scheduler: CompletionScheduler(center: { centre }),
+            now: now,
+            calendar: Clock.calendar
+        )
+
+        XCTAssertFalse(result.changed)
+        XCTAssertEqual(centre.added, [])
+        XCTAssertEqual(centre.removedPending, [], "a refused press is not a cancel")
+    }
+
     // MARK: - Intent wire form
 
     /// The intent carries the action across a process boundary as three parameters.

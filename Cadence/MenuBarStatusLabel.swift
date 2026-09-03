@@ -39,12 +39,17 @@ struct MenuBarStatusLabel: View {
         max(displayScale, NSScreen.screens.map(\.backingScaleFactor).max() ?? 2)
     }
 
+    /// The item is one image, so it carries the whole sentence. The clock is spoken in
+    /// words rather than as `clockText`: the visible form is two-digit-padded because the
+    /// glyphs are monospaced, and "zero five colon zero zero" is a worse reading of the
+    /// same time.
     private func accessibilityLabel(for status: SessionStatus) -> String {
+        let remaining = SpokenText.duration(controller.state.remaining(controller.now))
         switch status {
-        case .idle: "Cadence, ready"
-        case .running: "Cadence, \(controller.clockText) remaining"
-        case .paused: "Cadence, paused at \(controller.clockText)"
-        case .complete: "Cadence, session complete"
+        case .idle: return "Cadence, ready"
+        case .running: return "Cadence, \(remaining) remaining"
+        case .paused: return "Cadence, paused at \(remaining)"
+        case .complete: return "Cadence, session complete"
         }
     }
 }
@@ -90,7 +95,11 @@ private enum PillCache {
 /// so it cannot adapt; instead the pill composites the tint over `Surface.base`
 /// and ships opaque. On a dark bar that lands on the mockup's own rendered color;
 /// on a light one it stays a legible dark chip.
-private struct StatusPill: View {
+///
+/// Internal rather than private so `DropdownGeometryTests` can render it and measure
+/// that the widest clock lands inside the chip rather than merely being narrower than
+/// it (D10).
+struct StatusPill: View {
     let clockText: String
     let status: SessionStatus
 
@@ -104,10 +113,19 @@ private struct StatusPill: View {
                 .frame(width: Item.glyphSize, height: Item.glyphSize)
                 .foregroundStyle(tint)
 
+            // The clock column is *reserved* at `Clock.widest` rather than hugging
+            // the digits (D10). Hugging would fit a three-digit clock too — the pill
+            // is rasterised at its ideal size, so it can never truncate — but it
+            // would grow the item by 7 pt the minute a session crossed 100 minutes
+            // and shuffle every icon to its left along the bar. `.fixedSize` keeps
+            // the text at its ideal width inside that column, so the reservation can
+            // only ever be slack, never a squeeze.
             Text(clockText)
                 .font(DesignTokens.Typography.listTime)
                 .monospacedDigit()
                 .foregroundStyle(label)
+                .fixedSize()
+                .frame(width: Item.pillClockWidth, alignment: .trailing)
         }
         .padding(.horizontal, Item.pillHorizontalPadding)
         .frame(height: Item.pillHeight)

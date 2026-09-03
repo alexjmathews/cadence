@@ -22,17 +22,41 @@ final class SessionController {
     private(set) var now: Date
 
     private let store: SharedStore
+    private let scheduler: CompletionScheduler?
     private var ticker: Timer?
     private var observers: [any NSObjectProtocol] = []
     private var suiteObserver: SuiteObserver?
 
-    init(store: SharedStore = .shared, now: Date = Date()) {
+    /// `scheduler` defaults to `nil`, and `CadenceApp` passes `.shared`. A test that
+    /// forgot the argument would otherwise arm real alarms and raise a real
+    /// authorization prompt on the machine running the suite;
+    /// `UNUserNotificationCenter.current()` additionally throws
+    /// `bundleProxyForCurrentProcess is nil` for a process whose bundle LaunchServices
+    /// does not know. Neither is a side effect a unit test should acquire by omission.
+    init(
+        store: SharedStore = .shared,
+        scheduler: CompletionScheduler? = nil,
+        now: Date = Date()
+    ) {
         self.store = store
+        self.scheduler = scheduler
         self.now = now
         self.state = store.loadSessionState(now: now)
         self.preferences = store.loadPreferences()
         observeContainer()
         syncTicker()
+        // A relaunch with a session already running is a *first schedule*, not launch
+        // work: this process's notification store is empty (the store belongs to the
+        // process, and Stage 4 measured that it does not survive it), so the alarm the
+        // record implies has to be armed here or it does not exist. Which is also why
+        // this is where D3's authorization request can first surface — it is a
+        // schedule, and D3 asks only that it not be launch boilerplate.
+        //
+        // A session whose deadline passed while the app was quit is banked first, so
+        // the alarm reconciles against a record that agrees with what the surfaces
+        // are about to draw.
+        bankCompletion(now: now)
+        reconcileAlarm()
     }
 
     // MARK: - Derived
@@ -189,6 +213,22 @@ final class SessionController {
         }
         state = next
         syncTicker()
+        reconcileAlarm()
+    }
+
+    // MARK: - Completion alarm (D3)
+
+    /// Brings this process's notification store into line with the record just
+    /// written. Every write path funnels through `apply`, so this one call covers all
+    /// six edges D3 names — `start` / `resume` / `extend` arm, `pause` / `reset` and a
+    /// banked completion cancel — because `CompletionAlarm` decides from the
+    /// destination *state* rather than from which transition produced it.
+    ///
+    /// It runs on the app's own store only. A widget intent arms its own, in its own
+    /// store, through the same `Shared/` scheduler; neither can see the other's, which
+    /// is the measured constraint D3 was amended for.
+    private func reconcileAlarm(arming: Bool = true) {
+        scheduler?.reconcile(with: state, now: now, arming: arming)
     }
 
     private func save(_ preferences: Preferences) {
@@ -252,7 +292,16 @@ final class SessionController {
         if stored != state { state = stored }
         let storedPreferences = store.loadPreferences()
         if storedPreferences != preferences { preferences = storedPreferences }
+        // Wake is the case the ticker cannot cover: `syncTicker` below would invalidate
+        // it for a session that completed while the machine slept, so the tick that
+        // would have banked the completion never arrives. Banking here is what makes
+        // "the deadline elapsed while asleep" persist rather than merely render.
+        bankCompletion(now: now)
         syncTicker()
+        // Observation, not a write: cancel an alarm the record no longer justifies —
+        // a widget `pause` can only be reached from this side — but do not arm one the
+        // writer already armed in its own store.
+        reconcileAlarm(arming: false)
     }
 
     // MARK: - Ticker (D1)
@@ -287,21 +336,54 @@ final class SessionController {
         now = Date()
         guard state.effectiveStatus(now) != .running else { return }
 
-        // The deadline has passed. Every surface already *reads* complete (D4), but
-        // the stored record still says `running` with an elapsed `endsAt`, so
-        // `completedAt` is nil and the window's summary line has nothing to print.
-        // Banking the completion once fixes that.
-        //
-        // This is not the ticker deciding completion (D1): the deadline decided, and
-        // `reconciled` merely persists the derived result — which is the
-        // reconciliation D4 already sanctions, and which every other entry point
-        // (load, refresh, any transition) performs on the same terms. It is
-        // idempotent: an already-banked completion is returned unchanged, so `apply`
-        // writes nothing.
-        apply { SessionTransitions.reconciled($0, now: $1) }
-        // `apply` re-syncs only when the state moved, and the ticker has to stop
-        // either way.
+        // The deadline has passed, so bank it.
+        bankCompletion(now: now)
+        // `bankCompletion` re-syncs only when the record moved, and the ticker has to
+        // stop either way.
         syncTicker()
+    }
+
+    /// Persists a completion the deadline already decided.
+    ///
+    /// Every surface already *reads* complete (D4), but the stored record still says
+    /// `running` with an elapsed `endsAt` — so `completedAt` is nil, the window's
+    /// summary line has nothing to print, and, now that D3 gives each writer an alarm
+    /// to cancel, the container claims a session is running that this process is about
+    /// to cancel the alarm for.
+    ///
+    /// This cannot go through `apply`, and the reason is the whole of the defect it
+    /// fixes. `apply` bases its transition on `loadSessionState`, which reconciles on
+    /// read; reconciling *that* returns it unchanged, so `next != base` was always
+    /// false and the write never happened. The comparison has to be against the record
+    /// as **stored**, which is what `loadStoredSessionState` is for.
+    ///
+    /// It is not the ticker deciding completion (D1): the deadline decided, and this
+    /// merely persists the derived result, on the same terms every other entry point
+    /// (load, refresh, any transition) already reconciles. And it is idempotent — an
+    /// already-banked completion reconciles to itself, so the guard holds and nothing
+    /// is written or reloaded.
+    ///
+    /// `now` is a parameter rather than a fresh `Date()` because this runs from `init`,
+    /// *after* the injected clock has been stored: capturing wall-clock here would
+    /// overwrite the value `SessionController(store:scheduler:now:)` was handed before
+    /// the initialiser had returned, so a test injecting a fixed clock would silently get
+    /// the real one. The callers that do own a fresh instant pass it.
+    private func bankCompletion(now: Date) {
+        self.now = now
+
+        let stored = store.loadStoredSessionState()
+        let banked = SessionTransitions.reconciled(stored, now: now)
+        guard banked != stored else { return }
+
+        guard store.save(banked) else {
+            NSLog("Cadence: completion not banked — the container refused the write")
+            return
+        }
+        state = banked
+        // The banked record is `complete`, so this cancels — the honest end of the
+        // alarm's life, rather than leaving a request armed for a deadline that has
+        // already been announced.
+        reconcileAlarm()
     }
 }
 

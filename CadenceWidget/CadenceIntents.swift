@@ -166,7 +166,11 @@ struct CadenceActionIntent: AppIntent {
             return .result()
         }
 
-        if !WidgetActions.perform(action).changed {
+        // `.shared` is passed rather than defaulted: the alarm is armed in *this*
+        // process's notification store (D3), and `perform`'s default is deliberately
+        // no scheduler so that a caller which is not a real writer cannot acquire one
+        // by omission.
+        if !WidgetActions.perform(action, scheduler: .shared).changed {
             // `SharedStore` reloads every timeline on a successful write, so the
             // accepted path is already covered and reloading again would be two
             // reloads for one press. A press that a guard refused writes nothing —

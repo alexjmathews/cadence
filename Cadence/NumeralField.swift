@@ -234,7 +234,11 @@ final class NumeralTextField: NSTextField {
 final class NumeralCell: NSTextFieldCell {
     var editingAttributes: [NSAttributedString.Key: Any] = [:]
     var selectionAttributes: [NSAttributedString.Key: Any] = [:]
-    var caretColor: NSColor = .white
+    /// The caret. `updateNSView` sets it from the numerals' own colour on every render,
+    /// so this default is only ever the value between `init` and the first update — but a
+    /// literal white here is a literal colour in a shipped view file (D5), and the numerals
+    /// are `TextColor.primary` in three of their four states.
+    var caretColor = NSColor(DesignTokens.TextColor.primary)
 
     override func setUpFieldEditorAttributes(_ textObj: NSText) -> NSText {
         let editor = super.setUpFieldEditorAttributes(textObj)

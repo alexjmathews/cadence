@@ -249,7 +249,75 @@ final class SessionControllerTests: XCTestCase {
         XCTAssertNotNil(controller.state.completedAt)
         XCTAssertNotNil(controller.state.span, "which is what the summary line is built from")
         XCTAssertNotNil(controller.state.summaryLine(Date()))
-        XCTAssertEqual(store.loadSessionState(now: Date()).status, .complete)
+
+        // **`loadSessionState` is not the check, and this is the whole of the defect it
+        // used to hide.** It reconciles on read (D4), so it answers `.complete` for a
+        // record that still says `running` with an elapsed `endsAt` — which is precisely
+        // what the container held while this test passed and the completion was never
+        // banked. The stored bytes are what has to be asserted.
+        let stored = store.loadStoredSessionState()
+        XCTAssertEqual(stored.status, .complete, "the bytes in the container, not their reconciliation")
+        XCTAssertNotNil(stored.completedAt, "and `completedAt` is what the summary line needs")
+        XCTAssertNil(stored.endsAt, "a banked completion carries no deadline (§2.1)")
+        XCTAssertNil(stored.segmentStartedAt)
+    }
+
+    /// **The wake path, which the ticker cannot cover.**
+    ///
+    /// `refresh()` is what `NSWorkspace.didWakeNotification` calls. A machine that slept
+    /// across a deadline wakes with a container that still says `running` with an elapsed
+    /// `endsAt` — and the ticker is no help, because `syncTicker` invalidates it for a
+    /// session that is no longer running, so the tick that would have banked the
+    /// completion never arrives. Banking inside `refresh` is the only thing that makes
+    /// "the deadline elapsed while asleep" *persist* rather than merely render.
+    ///
+    /// This is unfenced without this test: deleting `bankCompletion` from `refresh` left
+    /// the whole suite green, because `testTheTickerBanksACompletionSoTheSummaryLineExists`
+    /// reaches the same lines by the tick path.
+    ///
+    /// The record is written **directly to the store** after the controller exists, so
+    /// neither the initialiser's own bank nor the ticker can be what banks it: at the
+    /// moment `refresh()` is called the controller is idle and holds no timer, exactly as
+    /// it would be after a sleep long enough to have stopped one. And the assertion is
+    /// `loadStoredSessionState` — the unreconciled bytes — because `loadSessionState`
+    /// reconciles on read and would answer `.complete` for the very record whose failure
+    /// to be banked is the defect.
+    func testWakingAfterTheDeadlineElapsedBanksTheCompletion() {
+        let controller = controller(seeding: .idle())
+        XCTAssertFalse(controller.isTicking)
+
+        // What the container holds when nothing was awake to notice the deadline.
+        let started = Date().addingTimeInterval(-30 * minute)
+        store.save(.running(
+            plannedDuration: 25 * minute,
+            startedAt: started,
+            endsAt: started.addingTimeInterval(25 * minute),
+            segmentStartedAt: started
+        ))
+        XCTAssertEqual(
+            store.loadStoredSessionState().status, .running,
+            "the fixture is the unbanked record, or this test proves nothing"
+        )
+
+        controller.refresh()
+
+        let stored = store.loadStoredSessionState()
+        XCTAssertEqual(
+            stored.status, .complete,
+            "waking across a deadline has to bank it, not merely render it"
+        )
+        XCTAssertNotNil(
+            stored.completedAt,
+            "without this the window's summary line has nothing to print"
+        )
+        XCTAssertNil(stored.endsAt, "a banked completion carries no deadline (§2.1)")
+        XCTAssertNil(stored.segmentStartedAt)
+
+        // And the live view agrees with the bytes, so the surfaces draw the record that
+        // was written rather than a reconciliation of one that was not.
+        XCTAssertEqual(controller.state.status, .complete)
+        XCTAssertNotNil(controller.state.summaryLine(Date()))
+        XCTAssertFalse(controller.isTicking)
     }
 
     /// Idempotent: `reconciled` returns an already-banked completion unchanged, so a
@@ -267,11 +335,100 @@ final class SessionControllerTests: XCTestCase {
 
         wait(seconds: 2.5)
         let banked = controller.state
+        let bankedBytes = store.loadStoredSessionState()
 
         controller.refresh()
 
         XCTAssertEqual(controller.state, banked)
         XCTAssertEqual(store.loadSessionState(now: Date()), banked)
+        // Idempotence measured where it matters: the *stored* record did not move, so
+        // the second pass wrote nothing and reloaded no timelines.
+        XCTAssertEqual(store.loadStoredSessionState(), bankedBytes)
+        XCTAssertEqual(bankedBytes.status, .complete)
+    }
+
+    // MARK: - The alarm the controller owns (D3)
+
+    /// **The observation path cancels but never arms, and the flag is the only thing that
+    /// says so.** `refresh()` runs on wake, on activation and on a KVO notification — all
+    /// three are the app reading a record *another* process wrote, and the process that
+    /// wrote it already armed its own alarm. A second one in this store is D3's avoidable
+    /// duplicate: one session announcing itself twice for no reason but an activation.
+    ///
+    /// Flipping `reconcileAlarm(arming: false)` to `true` was measured leaving the whole
+    /// suite green, because nothing observed what reached a notification centre.
+    func testRefreshCancelsAStaleAlarmWithoutArmingASecondOne() {
+        let centre = RecordingCentre()
+        let scheduler = CompletionScheduler(center: { centre })
+
+        // Constructed over an idle record, so the initialiser's own arm — which *is* a
+        // first schedule, this process's store being empty — is not what is measured.
+        let controller = SessionController(store: store, scheduler: scheduler, now: Date())
+        XCTAssertEqual(centre.added, [], "an idle relaunch has no alarm to arm")
+
+        // Another process starts a session and arms it in *its* store.
+        let now = Date()
+        store.save(.running(
+            plannedDuration: 25 * minute,
+            startedAt: now,
+            endsAt: now.addingTimeInterval(25 * minute),
+            segmentStartedAt: now
+        ))
+
+        controller.refresh()
+
+        XCTAssertEqual(controller.status, .running, "the record was adopted")
+        XCTAssertEqual(
+            centre.added, [],
+            "an observation must not arm a second alarm for a session whose writer armed one"
+        )
+
+        // The other half: the same call over a record that has stopped is the cancel only
+        // this side can reach, since a widget `pause` cannot touch the app's store.
+        store.save(.paused(startedAt: now, remaining: 10 * minute, focusedBefore: 0))
+        controller.refresh()
+
+        assertCancelled(centre)
+        XCTAssertEqual(centre.added, [], "and still arms nothing")
+    }
+
+    /// A transition the *app* performs is a write, so it owns the alarm — the other side
+    /// of the asymmetry above, asserted through the controller rather than the scheduler
+    /// so that `apply`'s call is fenced too.
+    func testAPressInTheAppArmsAndCancelsItsOwnAlarm() throws {
+        let centre = RecordingCentre()
+        let scheduler = CompletionScheduler(center: { centre })
+        let controller = SessionController(
+            store: store,
+            scheduler: scheduler,
+            now: Date()
+        )
+
+        controller.selectDuration(30 * minute)
+        controller.start()
+        XCTAssertEqual(centre.added.count, 1, "a start in the app arms in the app's store")
+        XCTAssertEqual(
+            try XCTUnwrap(centre.added.first?.interval), 30 * minute, accuracy: 1
+        )
+
+        controller.pause()
+        assertCancelled(centre)
+    }
+
+    /// Cancelling is idempotent by construction — removing nothing is free — and the
+    /// container observation means one write can reach `refresh` more than once, so the
+    /// assertion is *that* the alarm was cancelled and never *how many times*.
+    private func assertCancelled(
+        _ centre: RecordingCentre,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(centre.removedPending.isEmpty, "the alarm was never cancelled", file: file, line: line)
+        XCTAssertEqual(
+            Set(centre.removedPending.flatMap { $0 }), [CompletionAlarm.identifier],
+            "the scheduler removed something other than its own request",
+            file: file, line: line
+        )
     }
 
     private func wait(seconds: TimeInterval) {

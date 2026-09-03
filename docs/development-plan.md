@@ -145,13 +145,22 @@ what §2.2 says it is: a rule for *meeting-linked* sessions, where walking in la
 is the thing being avoided. Mockup minute counts are therefore not authoritative;
 the derivation is.
 
-**D8 — `Quit Cadence` is a row in the sheet; launch-at-login is not.**
+**D8 — `Quit Cadence` and `Settings…` are rows in the sheet; preferences themselves
+are not.**
 The dropdown mockup shows neither, but Cadence is menu-bar-only: a user who never
 opens the window would otherwise have no way to quit it, since `⌘Q` needs the app
 promoted to regular first. Quit is added as a footer row below `Open Cadence`,
-growing the sheet past the mockup's height by one row. Launch-at-login is *not*
-surfaced there — it is a set-once preference, not a per-session action, and
-`LoginItemManager` stays unreferenced until Stage 5 gives it a home.
+growing the sheet past the mockup's height by one row.
+
+**Amended in Stage 5.** Launch-at-login has the same reachability problem, and
+arguably worse — the user most likely to want it is exactly the one who never
+opens the window. But the preference itself does not belong in the sheet: the
+sheet is per-session actions, and a preference with two homes is two things that
+can disagree. So the *door* goes in the sheet and the preference stays behind it:
+a `Settings… ⌘,` footer row opening the `Settings` scene, which macOS also places
+under `Cadence ▸ Settings…`. One row now serves any number of future preferences,
+and `endEarlyBuffer` stays where the mockups put it — a first-class control in the
+window's swap slot, not duplicated into Settings.
 
 **D9 — The editable numerals are two numeric fields, not one text field.**
 Minutes and seconds are separate inputs with the colon drawn as immovable chrome

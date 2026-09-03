@@ -6,7 +6,64 @@
   "icon": "command-icon.png",
   "author": "alexmathews",
   "license": "MIT",
-  "commands": [],
+  "commands": [
+    {
+      "name": "start-session",
+      "title": "Start Session",
+      "subtitle": "Cadence",
+      "description": "Start a Cadence session using the stored plan — the duration you last chose.",
+      "mode": "no-view",
+      "icon": "command-icon.png"
+    },
+    {
+      "name": "start-timer",
+      "title": "Start Timer",
+      "subtitle": "Cadence",
+      "description": "Start a Cadence session of a given length. Leave the duration blank to use the stored plan.",
+      "mode": "no-view",
+      "icon": "command-icon.png",
+      "arguments": [
+        {
+          "name": "minutes",
+          "type": "text",
+          "placeholder": "minutes",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "pause",
+      "title": "Pause Session",
+      "subtitle": "Cadence",
+      "description": "Pause the running Cadence session.",
+      "mode": "no-view",
+      "icon": "command-icon.png"
+    },
+    {
+      "name": "resume",
+      "title": "Resume Session",
+      "subtitle": "Cadence",
+      "description": "Resume the paused Cadence session.",
+      "mode": "no-view",
+      "icon": "command-icon.png"
+    },
+    {
+      "name": "reset",
+      "title": "Reset Session",
+      "subtitle": "Cadence",
+      "description": "Reset Cadence back to idle.",
+      "mode": "no-view",
+      "icon": "command-icon.png"
+    },
+    {
+      "name": "extend",
+      "title": "Extend Session",
+      "subtitle": "Cadence",
+      "description": "Add five more minutes to a completed Cadence session.",
+      "mode": "no-view",
+      "icon": "command-icon.png"
+    }
+  ],
   "dependencies": {
     "@raycast/api": "^1.80.0"
   },

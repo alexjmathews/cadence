@@ -54,33 +54,81 @@ struct MenuBarDropdown: View {
 
     // MARK: - Header
 
-    private func header(_ status: SessionStatus) -> some View {
-        HStack(alignment: .lastTextBaseline, spacing: Sheet.controlPadding) {
-            Text(controller.clockText)
-                .font(DesignTokens.Typography.dropdownNumerals)
-                .tracking(DesignTokens.Typography.dropdownNumeralsTracking)
-                .monospacedDigit()
-                .foregroundStyle(
-                    status == .complete
-                        ? DesignTokens.Accent.completeText
-                        : DesignTokens.TextColor.primary
-                )
+    /// The clock and the word beside it, and the one row D10 is about.
+    ///
+    /// A running session's word is its *title* (`StatusWord`), so this row pairs six
+    /// monospaced glyphs with an arbitrary meeting name — and two `Text`s at equal
+    /// layout priority negotiate, which is how a long title came to render the clock
+    /// as `60:...`. The clock therefore takes its ideal width unconditionally
+    /// (`.fixedSize`) *and* outranks the label, and the label truncates.
+    ///
+    /// The two are belt-and-braces, not two halves of one mechanism: at this sheet's
+    /// width either alone is sufficient — dropping `.fixedSize` and keeping the priority
+    /// still renders the whole clock, and `DropdownGeometryTests` fails only when both
+    /// go. They are kept together because they refuse the compression differently, a
+    /// priority ordering it and `.fixedSize` forbidding it.
+    ///
+    /// It is its own view, taking strings rather than the controller, so
+    /// `DropdownGeometryTests` can render the real row at the real sheet width and
+    /// measure where the ink lands. A layout rule nothing can measure is a layout
+    /// rule that regresses silently — which is exactly how `60:...` shipped.
+    struct DropdownHeader: View {
+        let clockText: String
+        let statusWord: String
+        let status: SessionStatus
+        /// The clock in words, for VoiceOver. Supplied by the caller rather than parsed
+        /// back out of `clockText`, because the caller has the `TimeInterval` and the
+        /// string is a two-digit-padded rendering of it. Defaults to empty so
+        /// `DropdownGeometryTests` can render the row for its geometry alone.
+        var spokenClock: String = ""
 
-            Spacer(minLength: 0)
+        private typealias Sheet = DesignTokens.Layout.Dropdown
 
-            Text(StatusWord.text(for: controller.state, at: controller.now))
-                .font(DesignTokens.Typography.body)
-                .foregroundStyle(
-                    status == .complete
-                        ? DesignTokens.Accent.completeText
-                        : DesignTokens.TextColor.secondary
-                )
-                .lineLimit(1)
-                .truncationMode(.tail)
+        var body: some View {
+            HStack(alignment: .lastTextBaseline, spacing: Sheet.controlPadding) {
+                Text(clockText)
+                    .font(DesignTokens.Typography.dropdownNumerals)
+                    .tracking(DesignTokens.Typography.dropdownNumeralsTracking)
+                    .monospacedDigit()
+                    .foregroundStyle(
+                        status == .complete
+                            ? DesignTokens.Accent.completeText
+                            : DesignTokens.TextColor.primary
+                    )
+                    .fixedSize()
+                    .layoutPriority(DesignTokens.Clock.layoutPriority)
+
+                Spacer(minLength: 0)
+
+                Text(statusWord)
+                    .font(DesignTokens.Typography.body)
+                    .foregroundStyle(
+                        status == .complete
+                            ? DesignTokens.Accent.completeText
+                            : DesignTokens.TextColor.secondary
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .padding(.top, Sheet.topPadding)
+            .padding(.horizontal, Sheet.horizontalPadding)
+            .frame(height: Sheet.topPadding + Sheet.headerHeight, alignment: .bottom)
+            // One stop, not two. The word beside the clock is the session's *name* while
+            // running, so reading them separately gives a bare padded number and then a
+            // bare title; read together they are the sentence the row is.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(SpokenText.clockLabel(for: status))
+            .accessibilityValue("\(spokenClock), \(statusWord)")
         }
-        .padding(.top, Sheet.topPadding)
-        .padding(.horizontal, Sheet.horizontalPadding)
-        .frame(height: Sheet.topPadding + Sheet.headerHeight, alignment: .bottom)
+    }
+
+    private func header(_ status: SessionStatus) -> some View {
+        DropdownHeader(
+            clockText: controller.clockText,
+            statusWord: StatusWord.text(for: controller.state, at: controller.now),
+            status: status,
+            spokenClock: SpokenText.duration(controller.state.remaining(controller.now))
+        )
     }
 
     // MARK: - Progress
@@ -107,6 +155,11 @@ struct MenuBarDropdown: View {
         .frame(height: DesignTokens.Component.compactProgressRuleHeight)
         .padding(.top, Sheet.headerToRule)
         .padding(.horizontal, Sheet.horizontalPadding)
+        // Same treatment as the window's rule: a value, no hint, and no animation to
+        // suppress for Reduce Motion — the fill steps once a second off the ticker.
+        .accessibilityElement()
+        .accessibilityLabel("Session progress")
+        .accessibilityValue(SpokenText.progress(controller.state.progress(controller.now)))
     }
 
     // MARK: - Actions
@@ -285,16 +338,32 @@ struct MenuBarDropdown: View {
 
     // MARK: - Footer
 
-    /// Two rows: reveal the window, and leave. `Quit Cadence` is not in the mockup
-    /// but D8 puts it here, because a menu-bar-only app that is never opened has no
-    /// other way out — `⌘Q` needs a main menu, which an `.accessory` app does not
-    /// have. The sheet is one row taller than the mockup as a result.
+    /// Three rows: reveal the window, open the preferences pane, and leave.
+    ///
+    /// None of the three is in the mockup; D8 puts them here, because a menu-bar-only
+    /// app that is never opened has no other way to reach any of them — `⌘Q` and `⌘,`
+    /// both need a main menu, which an `.accessory` app does not have. The sheet is two
+    /// rows taller than the mockup as a result.
+    ///
+    /// `Settings…` is the *door*, not the preference: D8 as amended in Stage 5 keeps
+    /// launch-at-login behind the `Settings` scene (and `endEarlyBuffer` in the window's
+    /// swap slot, where the mockups put it) and puts only the way in here. One row now
+    /// serves any number of future preferences.
     @ViewBuilder
     private func footer() -> some View {
         footerRow("Open Cadence", shortcut: "⌘O") {
             AppActivation.showMainWindow(openWindow: openWindow)
         }
         .keyboardShortcut("o")
+
+        // No `.keyboardShortcut(",")`, for the same reason as `⌘Q` below: both are
+        // key equivalents AppKit routes through the App menu, which an `.accessory`
+        // process does not have, and `⌘Q` was measured not to fire from this panel.
+        // `⌘O` works because it is not one of those. The glyph still earns its place —
+        // `⌘,` is what opens this pane once the window has promoted the app.
+        footerRow("Settings…", shortcut: "⌘,") {
+            AppActivation.showSettings()
+        }
 
         // No `.keyboardShortcut("q")`: it was verified not to fire from this panel,
         // and a modifier that does nothing is worse than none. The hint still
@@ -322,6 +391,9 @@ struct MenuBarDropdown: View {
             .frame(height: Sheet.footerHeight)
         }
         .buttonStyle(SheetRowStyle())
+        // The shortcut glyphs are a hint at the keyboard, not part of the row's name:
+        // read verbatim they come out as "command O" appended to every row.
+        .accessibilityLabel(title)
     }
 }
 
@@ -365,6 +437,10 @@ private struct PresetRow: View {
             .padding(.horizontal, Sheet.horizontalPadding)
             .frame(height: Sheet.rowHeight)
         }
+        // The visible row is a title and a length in two columns; read as two labels it
+        // becomes "45 minutes, 45 min". One sentence, and it names the *act* — pressing
+        // the row re-scopes the plan, it does not merely state a duration.
+        .accessibilityLabel("Set duration to \(preset.title), \(preset.minutes) minutes")
         // `.disabled` rather than `.allowsHitTesting(false)`: the latter stops the
         // pointer but leaves the control advertising itself as enabled, so
         // assistive technology can still press a row §5 makes illegal. The colors
@@ -407,9 +483,12 @@ private struct FilledActionStyle: ButtonStyle {
             .font(DesignTokens.Typography.compactButton)
             .foregroundStyle(label)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The *primary* radius, though the two are equal today: this style draws the
+            // sheet's primary action, and reading the secondary's token here would leave
+            // the dropdown behind the window and the widget the moment they diverged.
             .background(
                 fill,
-                in: .rect(cornerRadius: DesignTokens.Component.secondaryButtonRadius)
+                in: .rect(cornerRadius: DesignTokens.Component.primaryButtonRadius)
             )
             .opacity(configuration.isPressed ? DesignTokens.Component.pressedOpacity : 1)
     }
@@ -434,13 +513,39 @@ private struct OutlinedActionStyle: ButtonStyle {
     }
 }
 
-/// Reveals the main window from the menu bar: promotes the app out of accessory
+/// Reveals a window from the menu bar: promotes the app out of accessory
 /// so it can take focus, then opens the window.
 enum AppActivation {
     @MainActor
     static func showMainWindow(openWindow: OpenWindowAction) {
+        promote()
+        openWindow(id: WindowID.main)
+    }
+
+    /// Opens the `Settings` scene from the sheet (D8 as amended).
+    ///
+    /// There is no environment action for this that works from a `MenuBarExtra` — SwiftUI
+    /// offers `SettingsLink`, but it is a view, and reusing `footerRow` is what keeps the
+    /// three footer rows one row rather than two kinds of row that merely look alike. So
+    /// this sends the AppKit action the standard `Cadence ▸ Settings…` item sends, which
+    /// is the same door by a different handle. The older selector is tried as well: the
+    /// action was renamed in macOS 13 and a process that answers only to the old name
+    /// should still open its pane rather than silently do nothing.
+    @MainActor
+    static func showSettings() {
+        // Promoted first for the same reason the main window is: an `.accessory`
+        // process cannot bring a window to the front to be typed into.
+        promote()
+        let selectors = ["showSettingsWindow:", "showPreferencesWindow:"]
+        for name in selectors where NSApp.sendAction(Selector((name)), to: nil, from: nil) {
+            return
+        }
+        NSLog("Cadence: no Settings action responded")
+    }
+
+    @MainActor
+    private static func promote() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        openWindow(id: WindowID.main)
     }
 }

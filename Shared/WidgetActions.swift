@@ -125,10 +125,20 @@ enum WidgetActions {
     /// touches the store, and an intent firing from a widget press has no `now` to
     /// pass but the instant of the press. Callers that need determinism inject it,
     /// and all of them do.
+    /// `scheduler` is the extension's own notification store (D3). It is a parameter
+    /// on the same terms `store` is: the app and the extension run this one code path,
+    /// and each arms or cancels in the store its own process owns, because Stage 4
+    /// measured that neither can reach the other's.
+    ///
+    /// It defaults to `nil` rather than to `.shared`, and the intent passes `.shared`
+    /// explicitly. A test that forgot the argument would otherwise arm a real alarm
+    /// and raise a real authorization prompt on the machine running the suite, which
+    /// is a side effect no unit test should be able to acquire by omission.
     @discardableResult
     static func perform(
         _ action: WidgetAction,
         store: SharedStore = .shared,
+        scheduler: CompletionScheduler? = nil,
         now: Date = Date(),
         calendar: Calendar = .autoupdatingCurrent
     ) -> Outcome {
@@ -151,6 +161,15 @@ enum WidgetActions {
             NSLog("Cadence: widget action dropped — the container refused the write")
             return Outcome(state: base, changed: false)
         }
+        // This press is a write, so it owns the alarm it implies — armed here, in this
+        // process's store, whether or not the app is running. That is the case D3 was
+        // amended for: with the app quit for the whole session, which D2 makes the
+        // ordinary widget case, there is nobody else to arm it and nobody else to
+        // notice it was never armed.
+        //
+        // A press a guard refused returns above without reaching this: nothing was
+        // written, so nothing about the alarm changed either.
+        scheduler?.reconcile(with: next, now: now)
         return Outcome(state: next, changed: true)
     }
 

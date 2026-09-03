@@ -47,13 +47,25 @@ title to `rgba(235,235,245,0.42)`.
 
 ### 1.3 Text on dark
 
-| Level | Value |
-|---|---|
-| Primary | `#f2f2f5` |
-| Secondary | `rgba(235,235,245,0.58)` |
-| Tertiary | `rgba(235,235,245,0.50)` |
-| Quaternary | `rgba(235,235,245,0.34)` |
-| On accent | `#fff` on `#2F6BFF` · `#04211c` on `#2FE0A6` |
+| Level | Value | Contrast on both shells |
+|---|---|---|
+| Primary | `#f2f2f5` | 15.9 : 1 |
+| Secondary | `rgba(235,235,245,0.58)` | 5.4 : 1 |
+| Tertiary | `rgba(235,235,245,0.50)` | 4.65 / 4.49 : 1 |
+| Quaternary | `rgba(235,235,245,0.34)` | **2.78 : 1 — below AA, deliberate** |
+| On accent | `#fff` on `#2F6BFF` · `#04211c` on `#2FE0A6` | |
+
+Ratios are measured against `#0b1024` and `#04211c` with translucent levels
+composited over the shell first, and are pinned by `CadenceTests/ContrastTests`.
+
+**Quaternary is deliberately below AA and stays that way.** It is the recessive
+fourth level — `end early by`, the day list's sync time, and the empty-calendar
+lines — and lifting it to pass would collapse it into Tertiary, flattening four
+levels into three. The constraint that makes this safe: **quaternary is never the
+sole carrier of meaning a user must act on.** Every string it carries is either a
+label beside brighter content or a statement that nothing is available, and in the
+latter case the absence is itself the information. Any new copy that fails that
+test belongs at Tertiary or above.
 
 ---
 

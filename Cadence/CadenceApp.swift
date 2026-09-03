@@ -3,7 +3,10 @@ import SwiftUI
 @main
 struct CadenceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var controller = SessionController()
+    /// `.shared` is passed explicitly, not defaulted: this is the app's own
+    /// notification store, and each writer owns its own alarm (D3). `SessionController`
+    /// defaults to no scheduler so the suite cannot arm real alarms by omission.
+    @State private var controller = SessionController(scheduler: .shared)
     /// The calendar's own live view, alongside the session's. It is a second
     /// controller rather than more surface on the first because they answer to
     /// different things: one writes `sessionState` and owns the display ticker, the
@@ -39,6 +42,16 @@ struct CadenceApp: App {
             MenuBarStatusLabel(controller: controller)
         }
         .menuBarExtraStyle(.window)
+
+        // Launch at login's home (D8 keeps the *preference* out of the sheet; §3.1's
+        // grid has no slot for it either). A `Settings` scene adds no pixels to any
+        // mockup and macOS gives it the standard `Cadence ▸ Settings…` item and `⌘,`
+        // for free — but both of those need the app promoted out of `.accessory`, so
+        // the dropdown carries a `Settings…` row that opens this scene. See
+        // `SettingsView` and `AppActivation.showSettings`.
+        Settings {
+            SettingsView()
+        }
     }
 }
 
