@@ -159,7 +159,7 @@ enum WidgetPresentation {
                 // The small card has no room for the span, so it reports the number
                 // the summary leads with. The medium's pane carries the rest.
                 caption: "Complete · \(minutes(state.focused(now))) min",
-                primary: WidgetControl(title: "Start another", action: .start),
+                primary: WidgetControl(title: "Reset", action: .reset),
                 secondary: WidgetControl(title: "+5 min", action: .extend)
             )
         }

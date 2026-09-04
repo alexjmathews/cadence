@@ -207,6 +207,22 @@ because the whole clock stays on screen and legible. **What is never acceptable 
 an ellipsis, a truncation, or a clock that leaves the surface.** Scaling preserves
 the reading; the other three destroy it.
 
+**D11 — The complete state offers `Reset` and `+5 min`, not `Start another`.**
+All three interactive surfaces — window, dropdown, both widget families — put `Reset`
+where `Start another` used to be. `+5 min` is unchanged.
+
+This retires two stories from the interfaces doc as written: "I can start a fresh
+session directly from the complete state" and the window's "add 5 minutes **or start
+another session**". Starting again is now two presses — `Reset`, then `Start` — and
+that is the intended shape: acknowledging a finished block and deciding what to do
+next are different acts, and the mockups' `Start another` collapsed them into one
+button that also happened to be the easiest thing to hit by accident.
+
+Nothing changes in the model. `complete → idle` on `reset` and `complete → running`
+on `extend` are both already legal (§5), and `startAnother` remains a legal
+transition with no surface pointing at it — reachable again from `idle` as a plain
+`start`, which is what it always was.
+
 ---
 
 ## 3. Stages
@@ -306,7 +322,8 @@ row.
 - Quick durations and buffer chips; the chips write `preferences.endEarlyBuffer`
   and show the active value highlighted.
 - Running: progress rule, `started · ends` status line. Complete: mint shell
-  recolor including the title bar, `summaryLine`, `Start another` / `+5 min`.
+  recolor including the title bar, `summaryLine`, `Reset` / `+5 min` (D11 — the
+  mockups draw `Start another` here).
 - The calendar strip renders its empty state only; the footer's fixed height is
   real from day one.
 

@@ -326,7 +326,7 @@ struct TimerWindow: View {
                 primary("Resume", status: status, action: controller.resume)
                 secondary("Reset", action: controller.reset)
             case .complete:
-                primary("Start another", status: status, action: controller.startAnother)
+                primary("Reset", status: status, action: controller.reset)
                 secondary("+5 min", action: controller.extend)
             }
         }

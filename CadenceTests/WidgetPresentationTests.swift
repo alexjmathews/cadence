@@ -160,7 +160,7 @@ final class WidgetPresentationTests: XCTestCase {
         XCTAssertEqual(value.countdown, .text("00:00"))
         XCTAssertEqual(value.progress, 1)
         XCTAssertEqual(value.caption, "Complete · 25 min")
-        XCTAssertEqual(value.primary.action, .start, "Start another is the start edge")
+        XCTAssertEqual(value.primary.action, .reset, "the complete card clears the session")
         XCTAssertEqual(value.secondary?.action, .extend)
     }
 
@@ -176,7 +176,7 @@ final class WidgetPresentationTests: XCTestCase {
 
         XCTAssertEqual(value.status, .complete)
         XCTAssertEqual(value.countdown, .text("00:00"))
-        XCTAssertEqual(value.primary.action, .start)
+        XCTAssertEqual(value.primary.action, .reset)
     }
 
     // MARK: - Pane
