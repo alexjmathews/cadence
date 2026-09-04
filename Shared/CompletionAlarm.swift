@@ -33,26 +33,48 @@ enum CompletionAlarm {
     enum Decision: Equatable, Sendable {
         /// Arm the alarm for this instant. Always strictly in the future.
         case schedule(at: Date)
-        /// Remove any pending alarm this store holds.
-        case cancel
+        /// Drop any pending alarm, but leave a delivered one alone: the session really
+        /// did finish, so a banner already sitting in Notification Center is true.
+        case disarm
+        /// Drop the pending alarm *and* any delivered banner. The session was stopped
+        /// before its deadline, so an announcement that it completed is a lie.
+        case retract
     }
 
     /// The alarm the container's record implies, at `now`.
     ///
-    /// Everything that is not a running session with a deadline still ahead of it
-    /// cancels — `paused`, `idle`, `complete`, and the running-but-elapsed record
-    /// alike. The last of those is the case worth naming: a deadline in the past
-    /// cannot be scheduled (a `UNTimeIntervalNotificationTrigger` needs a positive
-    /// interval) and should not be, because the session already *reads* complete on
-    /// every surface (D4). An alarm for it would announce a finish the user has
-    /// already been shown.
+    /// Only a running session with a deadline still ahead of it arms one. Everything
+    /// else stands the alarm down — but **how** it stands down is the distinction that
+    /// matters, and getting it wrong erased the notification the alarm had just
+    /// delivered.
+    ///
+    /// A session that reached its deadline resolves to `disarm`. The record reads
+    /// `complete` on every surface a moment later (D4), and the ticker banks that
+    /// completion and reconciles — so if reconciling *retracted*, the app would delete
+    /// its own completion banner within a second of the user hearing it. Which is
+    /// exactly what happened: audible alarm, nothing in Notification Center. The alarm
+    /// has already done its job by then; there is nothing left to take back.
+    ///
+    /// `paused` and `idle` resolve to `retract`, because there the banner would be
+    /// false — a "Session complete" sitting in Notification Center for a session the
+    /// user paused or reset is the same lie as an armed alarm, and this side can clear
+    /// its own. That was the case the original single `cancel` was written for; it just
+    /// caught completion in the same net.
+    ///
+    /// The running-but-elapsed record is `disarm` for the same reason as `complete`:
+    /// it is a finish that has happened, not one that was called off.
     static func decision(for state: SessionState, now: Date) -> Decision {
-        guard state.status == .running,
-              let endsAt = state.endsAt,
-              endsAt > now
-        else { return .cancel }
-
-        return .schedule(at: endsAt)
+        switch state.effectiveStatus(now) {
+        case .running:
+            // `effectiveStatus` has already folded in an elapsed deadline, so a
+            // running record here has one still ahead of it.
+            guard let endsAt = state.endsAt, endsAt > now else { return .disarm }
+            return .schedule(at: endsAt)
+        case .complete:
+            return .disarm
+        case .paused, .idle:
+            return .retract
+        }
     }
 
     /// The banner's copy.

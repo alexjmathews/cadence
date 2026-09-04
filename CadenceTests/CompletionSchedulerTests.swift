@@ -122,13 +122,18 @@ final class CompletionSchedulerTests: XCTestCase {
         )
     }
 
-    // MARK: - Cancelling
+    // MARK: - Standing down
 
     /// `pause` and `reset` remove, and so do the two states that are not a session and
-    /// the running-but-elapsed record. Delivered notifications go with the pending one: a
-    /// banner still sitting in Notification Center for a session the user has since
-    /// paused is the same lie as an armed alarm.
-    func testEveryStateThatIsNotALiveDeadlineRemovesTheRequest() {
+    /// the running-but-elapsed record. What differs is whether a *delivered* banner goes
+    /// with the pending request.
+    ///
+    /// A banner sitting in Notification Center for a session the user paused or reset is
+    /// the same lie as an armed alarm, so those retract it. A banner for a session that
+    /// genuinely finished is the feature working, so those only disarm — and this suite
+    /// previously asserted the opposite, which is how the app came to delete its own
+    /// completion notification within a second of the user hearing it.
+    func testEveryStateThatIsNotALiveDeadlineRemovesThePendingRequest() {
         let started = SessionTransitions.start(.idle(), duration: 25 * minute, now: Clock.at(13, 48))
         let elapsed = SessionState.running(
             startedAt: Clock.at(13, 48),
@@ -136,12 +141,12 @@ final class CompletionSchedulerTests: XCTestCase {
             segmentStartedAt: Clock.at(13, 48)
         )
 
-        for (label, state, now) in [
-            ("pause", SessionTransitions.pause(started, now: Clock.at(13, 58)), Clock.at(13, 58)),
-            ("reset", SessionTransitions.reset(started, now: Clock.at(13, 58)), Clock.at(13, 58)),
-            ("idle", SessionState.idle(), Clock.at(13, 58)),
-            ("complete", SessionTransitions.reconciled(started, now: Clock.at(14, 13)), Clock.at(14, 13)),
-            ("running past its deadline", elapsed, Clock.at(14, 20)),
+        for (label, state, now, clearsDelivered) in [
+            ("pause", SessionTransitions.pause(started, now: Clock.at(13, 58)), Clock.at(13, 58), true),
+            ("reset", SessionTransitions.reset(started, now: Clock.at(13, 58)), Clock.at(13, 58), true),
+            ("idle", SessionState.idle(), Clock.at(13, 58), true),
+            ("complete", SessionTransitions.reconciled(started, now: Clock.at(14, 13)), Clock.at(14, 13), false),
+            ("running past its deadline", elapsed, Clock.at(14, 20), false),
         ] {
             let (scheduler, centre) = scheduler()
             scheduler.reconcile(with: state, now: now)
@@ -151,8 +156,11 @@ final class CompletionSchedulerTests: XCTestCase {
                 "\(label) removes the pending request"
             )
             XCTAssertEqual(
-                centre.removedDelivered, [[CompletionAlarm.identifier]],
-                "\(label) clears a banner already delivered for it"
+                centre.removedDelivered,
+                clearsDelivered ? [[CompletionAlarm.identifier]] : [],
+                clearsDelivered
+                    ? "\(label) clears a banner that would now be false"
+                    : "\(label) leaves a delivered banner alone — the session did finish"
             )
             XCTAssertEqual(centre.added, [], "\(label) holds no alarm to arm")
         }

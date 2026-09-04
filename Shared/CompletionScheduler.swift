@@ -95,8 +95,10 @@ struct CompletionScheduler: Sendable {
         case .schedule(let deadline):
             guard arming else { return }
             schedule(at: deadline, state: state, now: now)
-        case .cancel:
-            cancel()
+        case .disarm:
+            disarm(clearingDelivered: false)
+        case .retract:
+            disarm(clearingDelivered: true)
         }
     }
 
@@ -115,7 +117,7 @@ struct CompletionScheduler: Sendable {
         // `decision` already guarantees this, but a trigger built with a
         // non-positive interval traps rather than failing, and the guarantee is one
         // refactor away from someone else's function.
-        guard interval > 0 else { return cancel() }
+        guard interval > 0 else { return disarm(clearingDelivered: false) }
 
         let content = UNMutableNotificationContent()
         let copy = CompletionAlarm.text(for: state)
@@ -155,13 +157,18 @@ struct CompletionScheduler: Sendable {
     /// Removes this store's pending request. It cannot reach the other store's, which
     /// is the measured constraint, not an omission.
     ///
-    /// Delivered notifications go too: a banner still sitting in Notification Center
-    /// for a session the user has since paused or reset is the same lie as an armed
-    /// alarm, and this side *can* clear its own.
-    private func cancel() {
+    /// `clearingDelivered` is the difference between an alarm that did its job and one
+    /// that turned out to be a lie. A banner still sitting in Notification Center for a
+    /// session the user has since paused or reset is the same lie as an armed alarm, and
+    /// this side *can* clear its own — but a banner for a session that genuinely
+    /// finished is the whole point of the feature, and clearing that one deleted the
+    /// notification the user had just heard.
+    private func disarm(clearingDelivered: Bool) {
         guard let center = center() else { return }
         center.removePendingNotificationRequests(withIdentifiers: [CompletionAlarm.identifier])
-        center.removeDeliveredNotifications(withIdentifiers: [CompletionAlarm.identifier])
+        if clearingDelivered {
+            center.removeDeliveredNotifications(withIdentifiers: [CompletionAlarm.identifier])
+        }
     }
 
     /// Asks once, then answers from the stored grant.

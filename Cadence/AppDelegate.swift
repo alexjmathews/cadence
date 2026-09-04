@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard notification.request.identifier == CompletionAlarm.identifier else {
             // Not ours. Present it rather than swallowing it — this delegate is the
             // process's, not this feature's.
-            return [.banner, .sound]
+            return Self.present
         }
 
         let now = Date()
@@ -105,6 +105,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             now: now
         ) else { return [] }
 
-        return [.banner, .sound]
+        return Self.present
     }
+
+    /// **`.list` is not optional here.** `.banner` alone shows the transient banner and
+    /// plays the sound, then lets the notification evaporate: it is `.list` that files it
+    /// in Notification Center. Omitting it produced a completion the user could hear and
+    /// never find afterwards — and because `willPresent` is consulted only while the app
+    /// is running, which for a menu-bar app is always, that was every completion.
+    ///
+    /// A finished session is a thing to acknowledge, not to let evaporate (data model
+    /// §5), and that has to hold for the notification as much as for the `complete`
+    /// state itself — the alarm is what tells a user who was away from the screen.
+    private static let present: UNNotificationPresentationOptions = [.banner, .list, .sound]
 }

@@ -44,33 +44,49 @@ final class CompletionAlarmTests: XCTestCase {
         )
     }
 
-    /// The two edges D3 cancels on, plus the two states that are not a running session.
-    func testEveryStateThatIsNotARunningDeadlineCancels() {
+    /// The two edges D3 stands down on, plus the two states that are not a running
+    /// session — and *how* each stands down, which is the distinction that matters.
+    ///
+    /// `paused` and `idle` retract: a "Session complete" banner for a session the user
+    /// stopped is false, and this store can clear its own. `complete` only disarms —
+    /// retracting there deleted the completion banner the user had just heard, because
+    /// the ticker banks the completion and reconciles within a second of the alarm
+    /// firing.
+    func testHowEachNonRunningStateStandsTheAlarmDown() {
         let now = Clock.at(13, 48)
         let started = SessionTransitions.start(.idle(), duration: 25 * minute, now: now)
 
-        for (label, state) in [
-            ("pause", SessionTransitions.pause(started, now: Clock.at(13, 58))),
-            ("reset", SessionTransitions.reset(started, now: Clock.at(13, 58))),
-            ("idle", SessionState.idle()),
-            ("complete", SessionTransitions.reconciled(started, now: Clock.at(14, 13))),
+        for (label, state, expected) in [
+            ("pause", SessionTransitions.pause(started, now: Clock.at(13, 58)), CompletionAlarm.Decision.retract),
+            ("reset", SessionTransitions.reset(started, now: Clock.at(13, 58)), .retract),
+            ("idle", SessionState.idle(), .retract),
         ] {
             XCTAssertEqual(
                 CompletionAlarm.decision(for: state, now: Clock.at(13, 58)),
-                .cancel,
-                "\(label) holds no alarm"
+                expected,
+                "\(label) holds no alarm, and any delivered banner for it would be false"
             )
         }
+
+        XCTAssertEqual(
+            CompletionAlarm.decision(
+                for: SessionTransitions.reconciled(started, now: Clock.at(14, 13)),
+                now: Clock.at(14, 13)
+            ),
+            .disarm,
+            "a finished session keeps its banner — the alarm has already done its job"
+        )
     }
 
     /// The case that would trap rather than fail: a stored record still saying `running`
     /// with a deadline in the past, which is what the container holds whenever nothing
     /// was awake to bank the completion.
     ///
-    /// It must cancel, not schedule. A `UNTimeIntervalNotificationTrigger` needs a
+    /// It must stand down, not schedule. A `UNTimeIntervalNotificationTrigger` needs a
     /// positive interval, and an alarm for a deadline the user has already been shown
-    /// as complete (D4) would announce a finish twice.
-    func testARunningRecordWhoseDeadlineHasPassedCancels() {
+    /// as complete (D4) would announce a finish twice. It disarms rather than retracts:
+    /// this is a finish that happened, not one that was called off.
+    func testARunningRecordWhoseDeadlineHasPassedDisarms() {
         let elapsed = SessionState.running(
             startedAt: Clock.at(13, 48),
             endsAt: Clock.at(14, 13),
@@ -79,13 +95,13 @@ final class CompletionAlarmTests: XCTestCase {
 
         XCTAssertEqual(
             CompletionAlarm.decision(for: elapsed, now: Clock.at(14, 20)),
-            .cancel
+            .disarm
         )
         // And the boundary: exactly at the deadline is already elapsed, because the
         // interval would be zero.
         XCTAssertEqual(
             CompletionAlarm.decision(for: elapsed, now: Clock.at(14, 13)),
-            .cancel
+            .disarm
         )
         XCTAssertEqual(
             CompletionAlarm.decision(for: elapsed, now: Clock.at(14, 12, 59)),
